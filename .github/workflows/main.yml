@@ -104,7 +104,7 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          $installerUrl = "https://nmap.org/npcap/dist/npcap-1.79.exe" # Check for the latest version
+          $installerUrl = "https://nmap.org/npcap/dist/npcap-1.83.exe" # Check for the latest version
           $installerPath = ".\npcap-installer.exe"
           
           Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
@@ -113,7 +113,7 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          $sdkUrl = "https://nmap.org/npcap/dist/npcap-sdk-1.10.zip"
+          $sdkUrl = "https://nmap.org/npcap/dist/npcap-sdk-1.15.zip"
           $sdkZipPath = ".\npcap-sdk.zip"
           $sdkExtractPath = "C:\npcap-sdk"
 
