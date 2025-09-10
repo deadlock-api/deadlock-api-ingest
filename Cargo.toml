@@ -1,7 +1,7 @@
 [package]
 name = "deadlock-api-ingest"
 version = "0.1.0"
-description = "A Tauri App"
+description = "Deadlock API Ingest"
 repository = "https://github.com/deadlock-api/deadlock-api-ingest"
 license = "MIT"
 edition = "2024"
