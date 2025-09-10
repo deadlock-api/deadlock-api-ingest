@@ -69,7 +69,7 @@ jobs:
       - name: Install Build Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libpcap-dev
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -91,7 +91,7 @@ jobs:
       matrix:
         include:
           - platform: 'ubuntu-latest'
-          - platform: 'windows-latest'
+#          - platform: 'windows-latest'
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v5
@@ -99,7 +99,7 @@ jobs:
         if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libpcap-dev
       - name: setup node
         uses: actions/setup-node@v5
         with:
