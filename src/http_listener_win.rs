@@ -1,10 +1,7 @@
 use crate::utils;
-use anyhow::Context;
 use pktmon::Capture;
 use pktmon::filter::{PktMonFilter, TransportProtocol};
-use regex::Regex;
 use std::collections::HashSet;
-use std::str;
 use tracing::{debug, info, warn};
 
 pub(crate) fn listen() -> anyhow::Result<()> {
