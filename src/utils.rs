@@ -31,11 +31,11 @@ pub(crate) fn ingest_salts(url: &str) -> anyhow::Result<()> {
     let client = reqwest::blocking::Client::new();
     let response = client
         .post("https://api.deadlock-api.com/v1/matches/salts")
-        .json(&serde_json::json!({
+        .json(&serde_json::json!([{
             "cluster_id": cluster_id,
             "match_id": match_id,
             "metadata_salt": metadata_salt,
-        }))
+        }]))
         .send()?;
     debug!("{:?}", response.text());
     Ok(())
