@@ -1,0 +1,28 @@
+[package]
+name = "deadlock-api-ingest"
+version = "0.1.0"
+description = "A Tauri App"
+repository = "https://github.com/deadlock-api/deadlock-api-ingest"
+license = "MIT"
+edition = "2024"
+
+[lib]
+name = "deadlock_api_ingest_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+serde_json = "1"
+pcap = "2.3.0"
+anyhow = "1.0.99"
+tracing = "0.1.41"
+reqwest = { version = "0.12.23", features = ["blocking", "json"] }
+regex = "1.11.2"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-autostart = "2"
