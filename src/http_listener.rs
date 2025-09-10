@@ -3,7 +3,7 @@ use pcap::{Capture, Device};
 use regex::Regex;
 use std::collections::HashSet;
 use std::str;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 const POSSIBLE_HTTP_STARTS: [usize; 17] = [
     54, 66, 78, 40, 42, 44, 46, 48, 50, 52, 56, 58, 60, 62, 64, 68, 70,
@@ -22,7 +22,7 @@ pub(crate) fn listen() -> anyhow::Result<()> {
         .promisc(true)
         .snaplen(65536) // Capture full packets
         .timeout(100) // Shorter timeout for more responsive capture
-        .buffer_size(1000000) // Larger buffer
+        .buffer_size(1_000_000) // Larger buffer
         .open()?;
 
     // Set filter to capture HTTP traffic (both outgoing and incoming on port 80)
@@ -52,11 +52,9 @@ pub(crate) fn listen() -> anyhow::Result<()> {
             }
             Err(pcap::Error::TimeoutExpired) => {
                 // This is normal, just continue
-                continue;
             }
             Err(e) => {
-                eprintln!("Error reading packet: {}", e);
-                continue;
+                warn!("Error reading packet: {}", e);
             }
         }
     }

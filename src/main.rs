@@ -1,3 +1,14 @@
+#![forbid(unsafe_code)]
+#![deny(clippy::all)]
+#![deny(unreachable_pub)]
+#![deny(clippy::correctness)]
+#![deny(clippy::suspicious)]
+#![deny(clippy::style)]
+#![deny(clippy::complexity)]
+#![deny(clippy::perf)]
+#![deny(clippy::pedantic)]
+#![deny(clippy::std_instead_of_core)]
+
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -13,7 +24,7 @@ fn init_tracing() {
         .with(env_filter)
         .init();
 }
-fn main() {
+fn main() -> anyhow::Result<()> {
     init_tracing();
 
     deadlock_api_ingest_lib::run()

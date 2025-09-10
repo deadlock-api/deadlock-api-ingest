@@ -1,17 +1,30 @@
+#![forbid(unsafe_code)]
+#![deny(clippy::all)]
+#![deny(unreachable_pub)]
+#![deny(clippy::correctness)]
+#![deny(clippy::suspicious)]
+#![deny(clippy::style)]
+#![deny(clippy::complexity)]
+#![deny(clippy::perf)]
+#![deny(clippy::pedantic)]
+#![deny(clippy::std_instead_of_core)]
+#![allow(clippy::missing_errors_doc)]
+
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
 };
+use tracing::{error, info, warn};
 
 mod http_listener;
 
-pub fn run() {
+pub fn run() -> anyhow::Result<()> {
     std::thread::spawn(move || {
         loop {
             if let Err(e) = http_listener::listen() {
-                eprintln!("Error in HTTP listener: {}", e);
+                error!("Error in HTTP listener: {e}");
             }
-            std::thread::sleep(std::time::Duration::from_secs(1));
+            std::thread::sleep(core::time::Duration::from_secs(1));
         }
     });
     tauri::Builder::default()
@@ -20,8 +33,8 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_autostart::Builder::new().build())
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context!())?;
+    Ok(())
 }
 
 fn setup_system_tray(app: &tauri::App) -> tauri::Result<()> {
@@ -33,15 +46,13 @@ fn setup_system_tray(app: &tauri::App) -> tauri::Result<()> {
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
         .show_menu_on_left_click(false) // Only show menu on right-click
-        .on_menu_event(move |app_handle, event| {
-            match event.id.as_ref() {
-                "quit" => {
-                    println!("Quit menu item clicked");
-                    app_handle.exit(0);
-                }
-                _ => {
-                    println!("Unhandled menu item: {:?}", event.id);
-                }
+        .on_menu_event(move |app_handle, event| match event.id.as_ref() {
+            "quit" => {
+                info!("Quit menu item clicked");
+                app_handle.exit(0);
+            }
+            _ => {
+                warn!("Unhandled menu item: {:?}", event.id);
             }
         })
         .build(app)?;
