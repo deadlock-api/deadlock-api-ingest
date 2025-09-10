@@ -37,7 +37,7 @@ pub(crate) fn ingest_salts(url: &str) -> anyhow::Result<()> {
             "metadata_salt": metadata_salt,
         }))
         .send()
-        .inspect(|r| debug!("Response: {r:?}"))
+        .inspect(|r| debug!("Response: {:?}", r.text()))
         .and_then(reqwest::blocking::Response::error_for_status)?;
     Ok(())
 }
