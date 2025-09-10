@@ -1,0 +1,83 @@
+name: Rust CI/CD
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+env:
+  CARGO_TERM_COLOR: always
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Update Rust toolchain to stable
+        run: |
+          rustup override set stable
+          rustup update stable
+          rustup component add rustfmt
+      - name: Rustfmt Check
+        uses: actions-rust-lang/rustfmt@v1
+
+  deps:
+    name: Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Update Rust toolchain to stable
+        run: |
+          rustup override set stable
+          rustup update stable
+      - name: Machete
+        uses: bnjbvr/cargo-machete@7959c845782fed02ee69303126d4a12d64f1db18
+
+  typos:
+    name: Typos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Update Rust toolchain to stable
+        run: |
+          rustup override set stable
+          rustup update stable
+      - uses: taiki-e/cache-cargo-install-action@v2
+        with:
+          tool: typos-cli
+      - name: Typos Check
+        run: typos src/
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Protocol Buffers compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler libprotobuf-dev clang mold
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "build-cache-${{ runner.os }}-${{ runner.arch }}-stable"
+      - name: Update Rust toolchain to stable
+        run: |
+          rustup override set stable
+          rustup update stable
+          rustup component add clippy
+      - name: Cargo Clippy (Deny Warnings)
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Cargo Clippy (Allow Warnings)
+        run: cargo clippy --all-targets --locked
