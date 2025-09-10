@@ -9,11 +9,10 @@
 #![deny(clippy::pedantic)]
 #![deny(clippy::std_instead_of_core)]
 
-// TEMPORARY SHOW CONSOLE
-// #![cfg_attr(
-//     all(not(debug_assertions), target_os = "windows"),
-//     windows_subsystem = "windows"
-// )]
+#![cfg_attr(
+    all(not(debug_assertions), target_os = "windows"),
+    windows_subsystem = "windows"
+)]
 
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
