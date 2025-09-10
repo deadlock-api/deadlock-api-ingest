@@ -1,6 +1,7 @@
 use anyhow::Context;
 use regex::Regex;
 use std::str;
+use tracing::debug;
 
 const POSSIBLE_HTTP_STARTS: [usize; 17] = [
     54, 66, 78, 40, 42, 44, 46, 48, 50, 52, 56, 58, 60, 62, 64, 68, 70,
@@ -35,7 +36,9 @@ pub(crate) fn ingest_salts(url: &str) -> anyhow::Result<()> {
             "match_id": match_id,
             "metadata_salt": metadata_salt,
         }))
-        .send()?;
+        .send()
+        .inspect(|r| debug!("Response: {r:?}"))
+        .and_then(|res| res.error_for_status())?;
     Ok(())
 }
 
@@ -121,4 +124,15 @@ pub(crate) fn parse_http_request(http_data: &str) -> Option<String> {
             format!("http://{host}{path}")
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ingest_salts() {
+        let url = "http://replay404.valve.net/1422450/37959196_937530290.meta.bz2";
+        assert!(ingest_salts(url).is_ok());
+    }
 }
