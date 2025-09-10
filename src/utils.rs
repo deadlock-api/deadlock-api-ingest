@@ -1,66 +1,12 @@
 use anyhow::Context;
-use pcap::{Capture, Device};
 use regex::Regex;
-use std::collections::HashSet;
 use std::str;
-use tracing::{debug, info, warn};
 
 const POSSIBLE_HTTP_STARTS: [usize; 17] = [
     54, 66, 78, 40, 42, 44, 46, 48, 50, 52, 56, 58, 60, 62, 64, 68, 70,
 ];
 
-pub(crate) fn listen() -> anyhow::Result<()> {
-    let device = Device::lookup()?.context("Failed to find network device")?;
-
-    info!(
-        "\nMonitoring device: {} ({})",
-        device.name,
-        device.desc.as_deref().unwrap_or("no description")
-    );
-
-    let mut cap = Capture::from_device(device)?
-        .promisc(true)
-        .snaplen(65536) // Capture full packets
-        .timeout(100) // Shorter timeout for more responsive capture
-        .buffer_size(1_000_000) // Larger buffer
-        .open()?;
-
-    // Set filter to capture HTTP traffic (both outgoing and incoming on port 80)
-    cap.filter("tcp port 80", true)?;
-
-    let mut ingested_urls = HashSet::new();
-    loop {
-        match cap.next_packet() {
-            Ok(packet) => {
-                if packet.data.len() < 60 {
-                    continue;
-                }
-
-                if let Some(http_packet) = find_http_in_packet(packet.data)
-                    && let Some(url) = parse_http_request(&http_packet)
-                {
-                    debug!("Found HTTP URL: {url}");
-                    if ingested_urls.contains(&url) {
-                        continue;
-                    }
-                    if url.ends_with(".meta.bz2") {
-                        ingest_salts(&url)?;
-                        ingested_urls.insert(url.clone());
-                        info!("Ingested salts for: {url}");
-                    }
-                }
-            }
-            Err(pcap::Error::TimeoutExpired) => {
-                // This is normal, just continue
-            }
-            Err(e) => {
-                warn!("Error reading packet: {}", e);
-            }
-        }
-    }
-}
-
-fn ingest_salts(url: &str) -> anyhow::Result<()> {
+pub(crate) fn ingest_salts(url: &str) -> anyhow::Result<()> {
     // http://replay404.valve.net/1422450/37959196_937530290.meta.bz2
     // extract cluster_id = 404
     // extract match_id = 37959196
@@ -93,7 +39,7 @@ fn ingest_salts(url: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn find_http_in_packet(data: &[u8]) -> Option<String> {
+pub(crate) fn find_http_in_packet(data: &[u8]) -> Option<String> {
     for &start in &POSSIBLE_HTTP_STARTS {
         if start >= data.len() {
             continue;
@@ -119,7 +65,7 @@ fn find_http_in_packet(data: &[u8]) -> Option<String> {
     None
 }
 
-fn try_partial_utf8(data: &[u8]) -> Option<String> {
+pub(crate) fn try_partial_utf8(data: &[u8]) -> Option<String> {
     // Try to get valid UTF-8 from the beginning of the data
     for end in (100..data.len().min(2000)).step_by(50).rev() {
         if let Ok(s) = str::from_utf8(&data[..end]) {
@@ -129,7 +75,7 @@ fn try_partial_utf8(data: &[u8]) -> Option<String> {
     None
 }
 
-fn parse_http_request(http_data: &str) -> Option<String> {
+pub(crate) fn parse_http_request(http_data: &str) -> Option<String> {
     let lines: Vec<&str> = http_data.lines().collect();
     if lines.is_empty() {
         return None;

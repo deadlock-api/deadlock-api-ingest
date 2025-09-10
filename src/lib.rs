@@ -10,18 +10,27 @@
 #![deny(clippy::std_instead_of_core)]
 #![allow(clippy::missing_errors_doc)]
 
+#[cfg(target_os = "linux")]
+mod http_listener_linux;
+#[cfg(target_os = "windows")]
+mod http_listener_win;
+pub(crate) mod utils;
+
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
 };
 use tracing::{error, info, warn};
 
-mod http_listener;
+#[cfg(target_os = "linux")]
+use http_listener_linux::listen;
+#[cfg(target_os = "windows")]
+use http_listener_win::listen;
 
 pub fn run() -> anyhow::Result<()> {
     std::thread::spawn(move || {
         loop {
-            if let Err(e) = http_listener::listen() {
+            if let Err(e) = listen() {
                 error!("Error in HTTP listener: {e}");
             }
             std::thread::sleep(core::time::Duration::from_secs(1));
