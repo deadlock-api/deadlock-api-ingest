@@ -104,7 +104,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: lts/*
-          cache: 'pnpm'
+          cache: 'npm'
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
