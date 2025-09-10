@@ -29,16 +29,15 @@ pub(crate) fn ingest_salts(url: &str) -> anyhow::Result<()> {
         .context("Failed to parse metadata salt")?;
 
     let client = reqwest::blocking::Client::new();
-    client
+    let response = client
         .post("https://api.deadlock-api.com/v1/matches/salts")
         .json(&serde_json::json!({
             "cluster_id": cluster_id,
             "match_id": match_id,
             "metadata_salt": metadata_salt,
         }))
-        .send()
-        .inspect(|r| debug!("Response: {:?}", r.text()))
-        .and_then(reqwest::blocking::Response::error_for_status)?;
+        .send()?;
+    debug!("{:?}", response.text());
     Ok(())
 }
 
