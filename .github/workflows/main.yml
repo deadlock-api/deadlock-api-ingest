@@ -91,31 +91,15 @@ jobs:
       matrix:
         include:
           - platform: 'ubuntu-latest'
-          - platform: 'windows-latest'
+#          - platform: 'windows-latest'
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v5
-      - name: install dependencies
+      - name: install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libpcap-dev
-      - name: Install Npcap
-        if: matrix.platform == 'windows-latest'
-        run: choco install npcap-oem -y
-      - name: Install Npcap SDK
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
-        run: |
-          $sdkUrl = "https://nmap.org/npcap/dist/npcap-sdk-1.15.zip"
-          $sdkZipPath = ".\npcap-sdk.zip"
-          $sdkExtractPath = "C:\npcap-sdk"
-
-          Invoke-WebRequest -Uri $sdkUrl -OutFile $sdkZipPath
-          Expand-Archive -Path $sdkZipPath -DestinationPath $sdkExtractPath -Force
-          $sdkLibPath = "C:\npcap-sdk\Lib\x64"
-          echo "LIB=$sdkLibPath;$env:LIB" >> $env:GITHUB_ENV
-
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
