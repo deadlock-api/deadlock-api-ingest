@@ -11,11 +11,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 permissions:
   contents: write
-  packages: write
 
 concurrency:
   cancel-in-progress: true
