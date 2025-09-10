@@ -13,7 +13,7 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 concurrency:
@@ -83,3 +83,38 @@ jobs:
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Cargo Clippy (Allow Warnings)
         run: cargo clippy --all-targets --locked
+
+  build_deploy:
+    name: Build & Deploy
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'ubuntu-latest'
+          - platform: 'windows-latest'
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "build-cache-${{ runner.os }}-${{ runner.arch }}-stable"
+      - name: Update Rust toolchain to stable
+        run: |
+          rustup override set stable
+          rustup update stable
+          rustup component add clippy
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: app-v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version.
+          releaseName: 'App v__VERSION__'
+          releaseBody: 'See the assets to download this version and install.'
+          releaseDraft: true
+          prerelease: false
