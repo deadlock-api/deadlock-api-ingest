@@ -20,7 +20,7 @@ use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[cfg(target_os = "linux")]
 use http_listener_linux::listen;
@@ -39,6 +39,25 @@ pub fn run() -> anyhow::Result<()> {
     tauri::Builder::default()
         .setup(move |app| {
             setup_system_tray(app)?;
+            Ok(())
+        })
+        .setup(|app| {
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_autostart::ManagerExt;
+
+                // Get the autostart manager
+                let autostart_manager = app.autolaunch();
+                // Enable autostart
+                let _ = autostart_manager.enable();
+                // Check enable state
+                debug!(
+                    "registered for autostart? {}",
+                    autostart_manager.is_enabled().unwrap_or_default()
+                );
+                // Disable autostart
+                let _ = autostart_manager.disable();
+            }
             Ok(())
         })
         .plugin(tauri_plugin_autostart::Builder::new().build())
