@@ -219,7 +219,7 @@ Manage-StartupTask -Action 'Remove'
 Manage-UpdateTask -Action 'Remove'
 
 Write-Log -Level 'INFO' "Stopping any currently running instance of '$AppName'..."
-Stop-Process -Name $AppName -ErrorAction SilentlyContinue
+Stop-Process -Name $AppName -Force -ErrorAction SilentlyContinue
 
 Write-Log -Level 'INFO' "Creating installation directory: $InstallDir"
 New-Item -Path $InstallDir -ItemType Directory -Force | Out-Null
