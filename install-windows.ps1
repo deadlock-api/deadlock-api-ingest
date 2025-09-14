@@ -1,10 +1,10 @@
 # Deadlock API Ingest - Windows Installation Script
-# This script downloads and installs the deadlock-api-ingest application as a Windows Service.
+# This script downloads and installs the application to run automatically on system startup via Task Scheduler.
 
 # --- Configuration ---
 $AppName = "deadlock-api-ingest"
 $GithubRepo = "deadlock-api/deadlock-api-ingest"
-$AssetKeyword = "windows-latest.exe" # Keyword to find in the release asset filename
+$AssetKeyword = "windows-latest.exe"
 
 # Installation Paths
 $InstallDir = "$env:ProgramFiles\$AppName"
@@ -12,7 +12,6 @@ $FinalExecutableName = "$AppName.exe"
 $LogFile = "$env:TEMP\${AppName}-install.log"
 
 # --- Script Setup ---
-# Stop on any error
 $ErrorActionPreference = 'Stop'
 
 # --- Helper Functions ---
@@ -26,53 +25,23 @@ function Write-Log {
         [Parameter(Mandatory = $true)]
         [string]$Message
     )
-
-    $ColorMap = @{
-        'INFO'    = 'Cyan'
-        'WARN'    = 'Yellow'
-        'ERROR'   = 'Red'
-        'SUCCESS' = 'Green'
-    }
+    $ColorMap = @{ 'INFO' = 'Cyan'; 'WARN' = 'Yellow'; 'ERROR' = 'Red'; 'SUCCESS' = 'Green' }
     $Color = $ColorMap[$Level]
     $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $LogMessage = "[$Timestamp] [$Level] $Message"
-
-    # Write to console
     Write-Host $LogMessage -ForegroundColor $Color
-
-    # Write to log file
     Add-Content -Path $LogFile -Value $LogMessage
 }
 
-# Function to check for Administrator privileges and re-launch if needed
+# Function to check for Administrator privileges
 function Test-IsAdmin {
     $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
     $isAdmin = (New-Object Security.Principal.WindowsPrincipal $currentUser).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-
     if (-not $isAdmin) {
         Write-Log -Level 'ERROR' "This script requires Administrator privileges. Please re-run as Administrator."
-        # Optional: Attempt to re-launch automatically
-        # Write-Log -Level 'INFO' "Attempting to re-launch with elevated privileges..."
-        # Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -File `"$($MyInvocation.MyCommand.Path)`""
         exit 1
     }
     Write-Log -Level 'INFO' "Running with Administrator privileges."
-}
-
-# Function to check for dependencies
-function Test-Dependencies {
-    Write-Log -Level 'INFO' "Checking for Npcap dependency (required for libpcap)..."
-    $npcapService = Get-Service -Name "npcap" -ErrorAction SilentlyContinue
-    $npcapDriver = Get-Item -Path "$env:SystemRoot\System32\drivers\npcap.sys" -ErrorAction SilentlyContinue
-
-    if ($npcapService -and $npcapDriver) {
-        Write-Log -Level 'SUCCESS' "Npcap is already installed."
-    }
-    else {
-        Write-Log -Level 'ERROR' "Npcap is not installed. This is required for network capture."
-        Write-Log -Level 'INFO' "Please download and install Npcap from: https://npcap.com"
-        exit 1
-    }
 }
 
 # Function to get the latest release from GitHub
@@ -86,15 +55,12 @@ function Get-LatestRelease {
         Write-Log -Level 'ERROR' "Failed to fetch release information from GitHub API."
         exit 1
     }
-
     $asset = $releaseInfo.assets | Where-Object { $_.name -like "*$AssetKeyword*" } | Select-Object -First 1
-
     if (-not $asset) {
         Write-Log -Level 'ERROR' "Could not find a release asset containing the keyword: '$AssetKeyword'"
         Write-Log -Level 'INFO' "Available assets are: $($releaseInfo.assets.name -join ', ')"
         exit 1
     }
-
     Write-Log -Level 'SUCCESS' "Found version: $($releaseInfo.tag_name)"
     return [PSCustomObject]@{
         Version      = $releaseInfo.tag_name
@@ -103,71 +69,61 @@ function Get-LatestRelease {
     }
 }
 
-# Function to manage the Windows Service
-function Manage-Service {
+# --- NEW FUNCTION: Replaces Manage-Service ---
+# Function to manage the Scheduled Task for autostart
+function Manage-StartupTask {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet('Remove', 'Create', 'Start')]
+        [ValidateSet('Remove', 'Create')]
         [string]$Action,
         [string]$ExecutablePath
     )
 
-    $service = Get-Service -Name $AppName -ErrorAction SilentlyContinue
-
     switch ($Action) {
         'Remove' {
-            if ($service) {
-                Write-Log -Level 'INFO' "Stopping and removing existing '$AppName' service..."
-                try {
-                    Stop-Service -Name $AppName -Force
-                } catch {}
-                sc.exe delete $AppName | Out-Null
-                Write-Log -Level 'SUCCESS' "Existing service removed."
-                Start-Sleep -Seconds 2 # Allow time for service to be fully removed
-            }
+            Write-Log -Level 'INFO' "Removing any existing scheduled task named '$AppName'..."
+            Unregister-ScheduledTask -TaskName $AppName -Confirm:$false -ErrorAction SilentlyContinue
+            Write-Log -Level 'SUCCESS' "Scheduled task cleanup complete."
         }
         'Create' {
-            Write-Log -Level 'INFO' "Creating new Windows Service for '$AppName'..."
-            New-Service -Name $AppName -BinaryPathName "`"$ExecutablePath`"" -DisplayName "Deadlock API Ingest" -StartupType Automatic
-            sc.exe description $AppName "Captures and forwards network data to the Deadlock API." | Out-Null
-            Write-Log -Level 'SUCCESS' "Service created successfully."
-        }
-        'Start' {
-            Write-Log -Level 'INFO' "Starting the '$AppName' service..."
-            Start-Service -Name $AppName
-            Start-Sleep -Seconds 3
-            $service = Get-Service -Name $AppName
-            if ($service.Status -eq 'Running') {
-                Write-Log -Level 'SUCCESS' "Service started successfully and is now running."
-            }
-            else {
-                Write-Log -Level 'ERROR' "Service failed to start. Current status: $($service.Status)"
-                exit 1
-            }
+            Write-Log -Level 'INFO' "Creating a new scheduled task to run on startup..."
+
+            # Define the action (what program to run and its working directory)
+            $taskAction = New-ScheduledTaskAction -Execute $ExecutablePath -WorkingDirectory $InstallDir
+
+            # Define the trigger (when to run it)
+            $taskTrigger = New-ScheduledTaskTrigger -AtStartup
+
+            # Define the user and permissions (run as SYSTEM with highest privileges)
+            $taskPrincipal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+
+            # Define settings (allow it to run indefinitely)
+            $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0
+
+            # Register the task with the system
+            Register-ScheduledTask -TaskName $AppName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Runs the Deadlock API Ingest application on system startup."
+
+            Write-Log -Level 'SUCCESS' "Scheduled task created successfully."
         }
     }
 }
 
 # --- Main Installation Logic ---
 
-# Clear previous log file for a clean run
 Clear-Content -Path $LogFile -ErrorAction SilentlyContinue
-
 Write-Log -Level 'INFO' "Starting Deadlock API Ingest installation..."
 Write-Log -Level 'INFO' "Log file is available at: $LogFile"
 
 Test-IsAdmin
-Test-Dependencies
-
 $release = Get-LatestRelease
 
-Manage-Service -Action 'Remove'
+# Remove any old scheduled task
+Manage-StartupTask -Action 'Remove'
 
 Write-Log -Level 'INFO' "Creating installation directory: $InstallDir"
 New-Item -Path $InstallDir -ItemType Directory -Force | Out-Null
 
 $downloadPath = Join-Path -Path $InstallDir -ChildPath $FinalExecutableName
-
 Write-Log -Level 'INFO' "Downloading $($release.DownloadUrl)..."
 Invoke-WebRequest -Uri $release.DownloadUrl -OutFile $downloadPath -UseBasicParsing
 
@@ -179,17 +135,17 @@ if ($actualSize -ne $release.Size) {
 }
 Write-Log -Level 'SUCCESS' "File integrity verified."
 
-# Unblock file downloaded from the internet
 Unblock-File -Path $downloadPath
 
-Manage-Service -Action 'Create' -ExecutablePath $downloadPath
-Manage-Service -Action 'Start'
+# Create the new scheduled task
+Manage-StartupTask -Action 'Create' -ExecutablePath $downloadPath
 
 Write-Host " "
-Write-Log -Level 'SUCCESS' "🚀 Deadlock API Ingest ($($release.Version)) has been installed successfully!"
+Write-Log -Level 'SUCCESS' "Deadlock API Ingest ($($release.Version)) has been installed successfully!"
+Write-Log -Level 'INFO' "The application will now start automatically every time the computer boots up."
 Write-Host " "
-Write-Host "You can manage the service with the following PowerShell commands:" -ForegroundColor White
-Write-Host "  - Check status:  Get-Service -Name $AppName" -ForegroundColor Yellow
-Write-Host "  - Stop service:  Stop-Service -Name $AppName" -ForegroundColor Yellow
-Write-Host "  - Start service: Start-Service -Name $AppName" -ForegroundColor Yellow
+Write-Host "You can manage the task via the Task Scheduler (taskschd.msc) or PowerShell:" -ForegroundColor White
+Write-Host "  - Check status:  Get-ScheduledTask -TaskName $AppName | Get-ScheduledTaskInfo" -ForegroundColor Yellow
+Write-Host "  - Run manually:  Start-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
+Write-Host "  - Stop it:       Stop-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
 Write-Host " "
