@@ -116,7 +116,12 @@ jobs:
       - name: Rename binary
         if: matrix.platform == 'windows-latest'
         run: ren target/release/deadlock-api-ingest.exe deadlock-api-ingest-${{ matrix.platform }}.exe
-      - uses: AButler/upload-release-assets@v3.0
+      - name: Upload Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: ncipollo/release-action@v1
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          files: target/release/deadlock-api-ingest-${{ matrix.platform }}*
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: deadlock-api-ingest-${{ matrix.platform }}
+          artifacts: target/release/deadlock-api-ingest-${{ matrix.platform }}*
+          allowUpdates: true
+          replacesArtifacts: true
