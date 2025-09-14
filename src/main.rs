@@ -11,6 +11,7 @@
 #[cfg(target_os = "linux")]
 pub(crate) mod utils;
 
+#[cfg(target_os = "linux")]
 mod http_listener_linux;
 #[cfg(target_os = "windows")]
 mod http_listener_win;
