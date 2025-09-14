@@ -8,12 +8,19 @@
 #![deny(clippy::perf)]
 #![deny(clippy::pedantic)]
 #![deny(clippy::std_instead_of_core)]
-// TEMPORARY: SHOW CONSOLE
-// #![cfg_attr(
-//     all(not(debug_assertions), target_os = "windows"),
-//     windows_subsystem = "windows"
-// )]
+#[cfg(target_os = "linux")]
+pub(crate) mod utils;
 
+mod http_listener_linux;
+#[cfg(target_os = "windows")]
+mod http_listener_win;
+
+#[cfg(target_os = "linux")]
+use http_listener_linux::listen;
+#[cfg(target_os = "windows")]
+use http_listener_win::listen;
+
+use tracing::error;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -32,5 +39,10 @@ fn init_tracing() {
 fn main() -> anyhow::Result<()> {
     init_tracing();
 
-    deadlock_api_ingest_lib::run()
+    loop {
+        if let Err(e) = listen() {
+            error!("Error in HTTP listener: {e}");
+        }
+        std::thread::sleep(core::time::Duration::from_secs(10));
+    }
 }
