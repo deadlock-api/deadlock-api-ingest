@@ -131,15 +131,9 @@ mod tests {
     #[test]
     fn test_extract_salts() {
         let url = "http://replay404.valve.net/1422450/37959196_937530290.meta.bz2";
-        assert_eq!(
-            extract_salts(url).unwrap(),
-            (404, 37959196, 937530290)
-        );
+        assert_eq!(extract_salts(url).unwrap(), (404, 37959196, 937530290));
         let url = "http://replay400.valve.net/1422450/38090632_88648761.meta.bz2";
-        assert_eq!(
-            extract_salts(url).unwrap(),
-            (400, 38090632, 88648761)
-        );
+        assert_eq!(extract_salts(url).unwrap(), (400, 38090632, 88648761));
     }
 
     #[test]

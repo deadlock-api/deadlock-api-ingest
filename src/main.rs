@@ -8,6 +8,7 @@
 #![deny(clippy::perf)]
 #![deny(clippy::pedantic)]
 #![deny(clippy::std_instead_of_core)]
+#![allow(clippy::unreadable_literal)]
 pub(crate) mod utils;
 
 #[cfg(target_os = "linux")]
