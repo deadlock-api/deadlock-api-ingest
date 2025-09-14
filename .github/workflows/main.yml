@@ -111,13 +111,12 @@ jobs:
       - name: Build
         run: cargo build --locked --release
       - name: Rename binary
+        if: matrix.platform == 'ubuntu-latest'
         run: mv target/release/deadlock-api-ingest target/release/deadlock-api-ingest-${{ matrix.platform }}
-      - name: Upload binary to GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      - name: Rename binary
+        if: matrix.platform == 'windows-latest'
+        run: ren target/release/deadlock-api-ingest.exe deadlock-api-ingest-${{ matrix.platform }}.exe
+      - uses: AButler/upload-release-assets@v3.0
         with:
-          files: target/release/deadlock-api-ingest-${matrix.platform}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          name: deadlock-api-ingest-${{ matrix.platform }}
-          fail_on_unmatched_files: true
-          overwrite_files: true
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          files: target/release/deadlock-api-ingest-${{ matrix.platform }};target/release/deadlock-api-ingest-${{ matrix.platform }}.exe
