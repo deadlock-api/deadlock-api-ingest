@@ -83,18 +83,29 @@ jobs:
       - name: Cargo Clippy (Allow Warnings)
         run: cargo clippy --all-targets --locked
 
-  build_deploy:
-    name: Build & Deploy
+  build:
+    name: Build
+    needs: [fmt, deps, typos, lint]
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: 'ubuntu-latest'
+            target: 'x86_64-unknown-linux-gnu'
+            binary_name: 'deadlock-api-ingest'
+            asset_name: 'deadlock-api-ingest-ubuntu-latest'
           - platform: 'windows-latest'
+            target: 'x86_64-pc-windows-msvc'
+            binary_name: 'deadlock-api-ingest.exe'
+            asset_name: 'deadlock-api-ingest-windows-latest.exe'
     runs-on: ${{ matrix.platform }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v5
-      - name: install dependencies (ubuntu only)
+        with:
+          fetch-depth: 0  # Fetch full history for proper versioning
+      - name: Install dependencies (Linux only)
         if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
@@ -103,25 +114,89 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "build-cache-${{ runner.os }}-${{ runner.arch }}-stable"
-      - name: Update Rust toolchain to stable
+          key: "${{ matrix.target }}"
+      - name: Update Rust toolchain
         run: |
           rustup override set stable
           rustup update stable
-          rustup component add clippy
-      - name: Build
-        run: cargo build --locked --release
-      - name: Rename binary
+          rustup target add ${{ matrix.target }}
+      - name: Generate version
+        id: version
+        run: |
+          # Generate semantic version based on commit count and short SHA
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          VERSION="v0.1.$COMMIT_COUNT-$SHORT_SHA"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Generated version: $VERSION"
+        shell: bash
+      - name: Build release binary
+        run: cargo build --locked --release --target ${{ matrix.target }}
+      - name: Prepare binary (Linux)
         if: matrix.platform == 'ubuntu-latest'
-        run: mv target/release/deadlock-api-ingest target/release/deadlock-api-ingest-${{ matrix.platform }}
-      - name: Rename binary
+        run: |
+          cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} ${{ matrix.asset_name }}
+          chmod +x ${{ matrix.asset_name }}
+          ls -la ${{ matrix.asset_name }}
+      - name: Prepare binary (Windows)
         if: matrix.platform == 'windows-latest'
-        run: ren target/release/deadlock-api-ingest.exe deadlock-api-ingest-${{ matrix.platform }}.exe
-      - name: Upload Release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        uses: ncipollo/release-action@v1
+        run: |
+          copy target\${{ matrix.target }}\release\${{ matrix.binary_name }} ${{ matrix.asset_name }}
+          dir ${{ matrix.asset_name }}
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          name: deadlock-api-ingest-${{ matrix.platform }}
-          artifacts: target/release/deadlock-api-ingest-${{ matrix.platform }}*
-          allowUpdates: true
-          replacesArtifacts: true
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}
+          retention-days: 1
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+      - name: Prepare release assets
+        run: |
+          mkdir -p ./release-assets
+          find ./artifacts -name "deadlock-api-ingest-*" -type f -exec cp {} ./release-assets/ \;
+          ls -la ./release-assets/
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.version }}
+          name: "Deadlock API Ingest ${{ needs.build.outputs.version }}"
+          body: |
+            ## Deadlock API Ingest ${{ needs.build.outputs.version }}
+
+            Automated release with the latest changes from master branch.
+
+            ### Installation
+
+            **Windows (PowerShell - Run as Administrator):**
+            ```powershell
+            irm https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install-windows.ps1 | iex
+            ```
+
+            **Linux (Bash - Run with sudo):**
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install-linux.sh | sudo bash
+            ```
+
+            ### Manual Download
+            - **Windows**: Download `deadlock-api-ingest-windows-latest.exe`
+            - **Linux**: Download `deadlock-api-ingest-ubuntu-latest`
+
+            ### Changes
+            - Latest updates from commit ${{ github.sha }}
+          files: ./release-assets/*
+          draft: false
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
