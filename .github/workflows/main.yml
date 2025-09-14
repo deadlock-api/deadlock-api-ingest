@@ -68,7 +68,7 @@ jobs:
       - name: Install Build Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libpcap-dev
+          sudo apt-get install -y libpcap-dev
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
