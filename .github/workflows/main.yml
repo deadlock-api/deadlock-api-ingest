@@ -119,4 +119,4 @@ jobs:
       - uses: AButler/upload-release-assets@v3.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          files: target/release/deadlock-api-ingest-${{ matrix.platform }};target/release/deadlock-api-ingest-${{ matrix.platform }}.exe
+          files: target/release/deadlock-api-ingest-${{ matrix.platform }}*
