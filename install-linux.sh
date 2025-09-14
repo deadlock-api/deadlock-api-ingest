@@ -20,6 +20,17 @@ SERVICE_NAME=$APP_NAME
 LOG_FILE="/tmp/${APP_NAME}-install.log"
 SYSTEMD_SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
+# Update functionality
+UPDATE_SERVICE_NAME="${APP_NAME}-updater"
+UPDATE_TIMER_NAME="${APP_NAME}-updater"
+UPDATE_SCRIPT_PATH="$INSTALL_DIR/update-checker.sh"
+UPDATE_LOG_FILE="/var/log/${APP_NAME}-updater.log"
+VERSION_FILE="$INSTALL_DIR/version.txt"
+CONFIG_FILE="$INSTALL_DIR/config.conf"
+BACKUP_DIR="$INSTALL_DIR/backup"
+UPDATE_SYSTEMD_SERVICE_FILE="/etc/systemd/system/${UPDATE_SERVICE_NAME}.service"
+UPDATE_SYSTEMD_TIMER_FILE="/etc/systemd/system/${UPDATE_TIMER_NAME}.timer"
+
 # --- Colors for output ---
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -164,6 +175,21 @@ download_file() {
     log "SUCCESS" "File integrity verified."
 }
 
+# Function to download the update checker script
+download_update_checker() {
+    log "INFO" "Downloading update checker script from GitHub..."
+
+    local update_script_url="https://raw.githubusercontent.com/$GITHUB_REPO/master/update-checker.sh"
+
+    if ! wget --progress=bar:force --user-agent="Bash-Installer" -O "$UPDATE_SCRIPT_PATH" "$update_script_url"; then
+        log "ERROR" "Failed to download update checker script."
+        exit 1
+    fi
+
+    chmod +x "$UPDATE_SCRIPT_PATH"
+    log "SUCCESS" "Update checker script downloaded and installed."
+}
+
 # Function to manage the systemd service
 manage_service() {
     local action="$1"
@@ -238,6 +264,144 @@ EOF
     esac
 }
 
+# Function to manage the update systemd service and timer
+manage_update_service() {
+    local action="$1"
+
+    case "$action" in
+        "remove")
+            # Stop and disable timer
+            if systemctl is-active --quiet "$UPDATE_TIMER_NAME.timer"; then
+                log "INFO" "Stopping existing update timer..."
+                systemctl stop "$UPDATE_TIMER_NAME.timer"
+            fi
+            if systemctl is-enabled --quiet "$UPDATE_TIMER_NAME.timer"; then
+                log "INFO" "Disabling existing update timer..."
+                systemctl disable "$UPDATE_TIMER_NAME.timer"
+            fi
+
+            # Stop and disable service
+            if systemctl is-active --quiet "$UPDATE_SERVICE_NAME.service"; then
+                log "INFO" "Stopping existing update service..."
+                systemctl stop "$UPDATE_SERVICE_NAME.service"
+            fi
+            if systemctl is-enabled --quiet "$UPDATE_SERVICE_NAME.service"; then
+                log "INFO" "Disabling existing update service..."
+                systemctl disable "$UPDATE_SERVICE_NAME.service"
+            fi
+
+            # Remove files
+            if [[ -f "$UPDATE_SYSTEMD_TIMER_FILE" ]]; then
+                log "INFO" "Removing existing update timer file..."
+                rm -f "$UPDATE_SYSTEMD_TIMER_FILE"
+            fi
+            if [[ -f "$UPDATE_SYSTEMD_SERVICE_FILE" ]]; then
+                log "INFO" "Removing existing update service file..."
+                rm -f "$UPDATE_SYSTEMD_SERVICE_FILE"
+            fi
+
+            systemctl daemon-reload
+            ;;
+        "create")
+            log "INFO" "Creating update systemd service and timer..."
+
+            # Create the update service file
+            cat > "$UPDATE_SYSTEMD_SERVICE_FILE" << EOF
+[Unit]
+Description=Deadlock API Ingest Update Checker
+Documentation=https://github.com/$GITHUB_REPO
+After=network.target
+Wants=network.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=$UPDATE_SCRIPT_PATH
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=$UPDATE_SERVICE_NAME
+
+# Security Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+EOF
+
+            # Create the timer file
+            cat > "$UPDATE_SYSTEMD_TIMER_FILE" << EOF
+[Unit]
+Description=Daily Update Check for Deadlock API Ingest
+Requires=$UPDATE_SERVICE_NAME.service
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+            chmod 644 "$UPDATE_SYSTEMD_SERVICE_FILE"
+            chmod 644 "$UPDATE_SYSTEMD_TIMER_FILE"
+            systemctl daemon-reload
+            log "SUCCESS" "Update systemd service and timer created."
+            ;;
+        "start")
+            log "INFO" "Enabling and starting the update timer..."
+            systemctl enable "$UPDATE_TIMER_NAME.timer"
+            systemctl start "$UPDATE_TIMER_NAME.timer"
+
+            if systemctl is-active --quiet "$UPDATE_TIMER_NAME.timer"; then
+                log "SUCCESS" "Update timer started successfully."
+                log "INFO" "Next update check: $(systemctl list-timers --no-pager | grep "$UPDATE_TIMER_NAME" | awk '{print $1, $2}')"
+            else
+                log "ERROR" "Update timer failed to start."
+                log "INFO" "To check status: systemctl status $UPDATE_TIMER_NAME.timer"
+                exit 1
+            fi
+            ;;
+    esac
+}
+
+# Function to create configuration file
+create_config_file() {
+    log "INFO" "Creating configuration file..."
+
+    cat > "$CONFIG_FILE" << EOF
+# Deadlock API Ingest Configuration
+# This file controls various settings for the application and updater
+
+# Automatic Updates
+# Set to "false" to disable automatic updates
+AUTO_UPDATE="true"
+
+# Update Check Time
+# The timer runs daily, but you can manually trigger updates with:
+# systemctl start $UPDATE_SERVICE_NAME.service
+
+# Backup Retention
+# Number of backup versions to keep (default: 5)
+BACKUP_RETENTION=5
+
+# Update Log Level
+# Options: INFO, WARN, ERROR
+UPDATE_LOG_LEVEL="INFO"
+EOF
+
+    chmod 644 "$CONFIG_FILE"
+    log "SUCCESS" "Configuration file created at $CONFIG_FILE"
+}
+
+# Function to store version information
+store_version_info() {
+    local version="$1"
+    echo "$version" > "$VERSION_FILE"
+    log "INFO" "Version information stored: $version"
+}
+
 # --- Main Installation Logic ---
 main() {
     >"$LOG_FILE"
@@ -258,10 +422,13 @@ main() {
         exit 1
     fi
 
+    # Remove existing services (both main and update)
     manage_service "remove"
+    manage_update_service "remove"
 
     log "INFO" "Setting up installation directory: $INSTALL_DIR"
     mkdir -p "$INSTALL_DIR"
+    mkdir -p "$BACKUP_DIR"
 
     local temp_download_path="$INSTALL_DIR/${APP_NAME}-${version}"
     download_file "$download_url" "$temp_download_path" "$size"
@@ -275,20 +442,44 @@ main() {
     log "INFO" "Creating symlink for easy access at $bin_symlink"
     ln -sf "$final_executable_path" "$bin_symlink"
 
+    # Store version information
+    store_version_info "$version"
+
+    # Create configuration file
+    create_config_file
+
+    # Download update checker script
+    download_update_checker
+
+    # Create and start main service
     manage_service "create" "$final_executable_path"
     manage_service "start"
+
+    # Create and start update service/timer
+    manage_update_service "create"
+    manage_update_service "start"
 
     log "SUCCESS" "🚀 Deadlock API Ingest ($version) has been installed successfully!"
     # The final messages should also be sent to stderr to not interfere with any potential scripting.
     {
         echo
-        echo -e "${GREEN}Installation complete.${NC}"
+        echo -e "${GREEN}Installation complete with automatic updates enabled.${NC}"
         echo
-        echo -e "You can manage the service with the following commands:"
+        echo -e "You can manage the main service with the following commands:"
         echo -e "  - Check status:  ${YELLOW}systemctl status $SERVICE_NAME${NC}"
         echo -e "  - View logs:     ${YELLOW}journalctl -u $SERVICE_NAME -f${NC}"
         echo -e "  - Stop service:  ${YELLOW}systemctl stop $SERVICE_NAME${NC}"
         echo -e "  - Start service: ${YELLOW}systemctl start $SERVICE_NAME${NC}"
+        echo
+        echo -e "Automatic update functionality:"
+        echo -e "  - Update timer:  ${YELLOW}systemctl status $UPDATE_TIMER_NAME.timer${NC}"
+        echo -e "  - Update logs:   ${YELLOW}journalctl -u $UPDATE_SERVICE_NAME -f${NC}"
+        echo -e "  - Manual update: ${YELLOW}systemctl start $UPDATE_SERVICE_NAME.service${NC}"
+        echo -e "  - Disable updates: Edit ${YELLOW}$CONFIG_FILE${NC} and set AUTO_UPDATE=\"false\""
+        echo
+        echo -e "Configuration file: ${YELLOW}$CONFIG_FILE${NC}"
+        echo -e "Version file: ${YELLOW}$VERSION_FILE${NC}"
+        echo -e "Update logs: ${YELLOW}$UPDATE_LOG_FILE${NC}"
         echo
     } >&2
 }

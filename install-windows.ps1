@@ -11,6 +11,14 @@ $InstallDir = "$env:ProgramFiles\$AppName"
 $FinalExecutableName = "$AppName.exe"
 $LogFile = "$env:TEMP\${AppName}-install.log"
 
+# Update functionality
+$UpdateTaskName = "${AppName}-updater"
+$UpdateScriptPath = "$InstallDir\update-checker.ps1"
+$UpdateLogFile = "$env:ProgramData\${AppName}\updater.log"
+$VersionFile = "$InstallDir\version.txt"
+$ConfigFile = "$InstallDir\config.conf"
+$BackupDir = "$InstallDir\backup"
+
 # --- Script Setup ---
 $ErrorActionPreference = 'Stop'
 
@@ -69,7 +77,21 @@ function Get-LatestRelease {
     }
 }
 
-# --- NEW FUNCTION: Replaces Manage-Service ---
+# Function to download the update checker script
+function Get-UpdateChecker {
+    Write-Log -Level 'INFO' "Downloading update checker script from GitHub..."
+
+    $UpdateScriptUrl = "https://raw.githubusercontent.com/$GithubRepo/master/update-checker.ps1"
+
+    try {
+        Invoke-WebRequest -Uri $UpdateScriptUrl -OutFile $UpdateScriptPath -UseBasicParsing
+        Write-Log -Level 'SUCCESS' "Update checker script downloaded and installed."
+    } catch {
+        Write-Log -Level 'ERROR' "Failed to download update checker script: $($_.Exception.Message)"
+        exit 1
+    }
+}
+
 # Function to manage the Scheduled Task for autostart
 function Manage-StartupTask {
     param(
@@ -108,6 +130,81 @@ function Manage-StartupTask {
     }
 }
 
+# Function to manage the update scheduled task
+function Manage-UpdateTask {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('Remove', 'Create')]
+        [string]$Action
+    )
+
+    switch ($Action) {
+        'Remove' {
+            Write-Log -Level 'INFO' "Removing any existing update scheduled task..."
+            Unregister-ScheduledTask -TaskName $UpdateTaskName -Confirm:$false -ErrorAction SilentlyContinue
+            Write-Log -Level 'SUCCESS' "Update task cleanup complete."
+        }
+        'Create' {
+            Write-Log -Level 'INFO' "Creating update scheduled task..."
+
+            # Define the action (run PowerShell with the update script)
+            $taskAction = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-ExecutionPolicy Bypass -File `"$UpdateScriptPath`"" -WorkingDirectory $InstallDir
+
+            # Define the trigger (daily at 3 AM with random delay)
+            $taskTrigger = New-ScheduledTaskTrigger -Daily -At "3:00 AM"
+            $taskTrigger.RandomDelay = "PT30M"  # 30 minute random delay
+
+            # Define the user and permissions (run as SYSTEM)
+            $taskPrincipal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+
+            # Define settings
+            $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1) -StartWhenAvailable
+
+            # Register the task with the system
+            Register-ScheduledTask -TaskName $UpdateTaskName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Daily update checker for Deadlock API Ingest application."
+
+            Write-Log -Level 'SUCCESS' "Update scheduled task created successfully."
+            Write-Log -Level 'INFO' "Update task will run daily at 3:00 AM (with up to 30 minute random delay)."
+        }
+    }
+}
+
+# Function to create configuration file
+function New-ConfigFile {
+    Write-Log -Level 'INFO' "Creating configuration file..."
+
+    $ConfigContent = @"
+# Deadlock API Ingest Configuration
+# This file controls various settings for the application and updater
+
+# Automatic Updates
+# Set to "false" to disable automatic updates
+AUTO_UPDATE="true"
+
+# Update Check Time
+# The task runs daily at 3 AM, but you can manually trigger updates with:
+# Start-ScheduledTask -TaskName $UpdateTaskName
+
+# Backup Retention
+# Number of backup versions to keep (default: 5)
+BACKUP_RETENTION=5
+
+# Update Log Level
+# Options: INFO, WARN, ERROR
+UPDATE_LOG_LEVEL="INFO"
+"@
+
+    Set-Content -Path $ConfigFile -Value $ConfigContent
+    Write-Log -Level 'SUCCESS' "Configuration file created at $ConfigFile"
+}
+
+# Function to store version information
+function Set-VersionInfo {
+    param($Version)
+    Set-Content -Path $VersionFile -Value $Version
+    Write-Log -Level 'INFO' "Version information stored: $Version"
+}
+
 # --- Main Installation Logic ---
 
 Clear-Content -Path $LogFile -ErrorAction SilentlyContinue
@@ -117,11 +214,17 @@ Write-Log -Level 'INFO' "Log file is available at: $LogFile"
 Test-IsAdmin
 $release = Get-LatestRelease
 
-# Remove any old scheduled task
+# Remove any old scheduled tasks (both main and update)
 Manage-StartupTask -Action 'Remove'
+Manage-UpdateTask -Action 'Remove'
 
 Write-Log -Level 'INFO' "Creating installation directory: $InstallDir"
 New-Item -Path $InstallDir -ItemType Directory -Force | Out-Null
+New-Item -Path $BackupDir -ItemType Directory -Force | Out-Null
+
+# Ensure log directory exists
+$UpdateLogDir = Split-Path -Parent $UpdateLogFile
+New-Item -Path $UpdateLogDir -ItemType Directory -Force | Out-Null
 
 $downloadPath = Join-Path -Path $InstallDir -ChildPath $FinalExecutableName
 Write-Log -Level 'INFO' "Downloading $($release.DownloadUrl)..."
@@ -137,15 +240,37 @@ Write-Log -Level 'SUCCESS' "File integrity verified."
 
 Unblock-File -Path $downloadPath
 
-# Create the new scheduled task
+# Store version information
+Set-VersionInfo -Version $release.Version
+
+# Create configuration file
+New-ConfigFile
+
+# Download update checker script
+Get-UpdateChecker
+
+# Create the main scheduled task
 Manage-StartupTask -Action 'Create' -ExecutablePath $downloadPath
 
+# Create the update scheduled task
+Manage-UpdateTask -Action 'Create'
+
 Write-Host " "
-Write-Log -Level 'SUCCESS' "Deadlock API Ingest ($($release.Version)) has been installed successfully!"
+Write-Log -Level 'SUCCESS' "Deadlock API Ingest ($($release.Version)) has been installed successfully with automatic updates!"
 Write-Log -Level 'INFO' "The application will now start automatically every time the computer boots up."
 Write-Host " "
-Write-Host "You can manage the task via the Task Scheduler (taskschd.msc) or PowerShell:" -ForegroundColor White
+Write-Host "You can manage the main task via the Task Scheduler (taskschd.msc) or PowerShell:" -ForegroundColor White
 Write-Host "  - Check status:  Get-ScheduledTask -TaskName $AppName | Get-ScheduledTaskInfo" -ForegroundColor Yellow
 Write-Host "  - Run manually:  Start-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
 Write-Host "  - Stop it:       Stop-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
+Write-Host " "
+Write-Host "Automatic update functionality:" -ForegroundColor White
+Write-Host "  - Update task:   Get-ScheduledTask -TaskName $UpdateTaskName | Get-ScheduledTaskInfo" -ForegroundColor Yellow
+Write-Host "  - Manual update: Start-ScheduledTask -TaskName $UpdateTaskName" -ForegroundColor Yellow
+Write-Host "  - Update logs:   Get-Content '$UpdateLogFile'" -ForegroundColor Yellow
+Write-Host "  - Disable updates: Edit '$ConfigFile' and set AUTO_UPDATE=`"false`"" -ForegroundColor Yellow
+Write-Host " "
+Write-Host "Configuration file: $ConfigFile" -ForegroundColor Cyan
+Write-Host "Version file: $VersionFile" -ForegroundColor Cyan
+Write-Host "Update logs: $UpdateLogFile" -ForegroundColor Cyan
 Write-Host " "
