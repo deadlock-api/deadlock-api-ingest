@@ -426,6 +426,9 @@ main() {
     manage_service "remove"
     manage_update_service "remove"
 
+    log "INFO" "Stopping any currently running instance of '$APP_NAME'..."
+    killall "$APP_NAME" || true
+
     log "INFO" "Setting up installation directory: $INSTALL_DIR"
     mkdir -p "$INSTALL_DIR"
     mkdir -p "$BACKUP_DIR"
