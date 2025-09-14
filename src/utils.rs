@@ -8,11 +8,21 @@ const POSSIBLE_HTTP_STARTS: [usize; 17] = [
 ];
 
 pub(crate) fn ingest_salts(url: &str) -> anyhow::Result<()> {
-    // http://replay404.valve.net/1422450/37959196_937530290.meta.bz2
-    // extract cluster_id = 404
-    // extract match_id = 37959196
-    // extract metadata_salt = 937530290
+    let (cluster_id, match_id, metadata_salt) = extract_salts(url)?;
+    let client = reqwest::blocking::Client::new();
+    let response = client
+        .post("https://api.deadlock-api.com/v1/matches/salts")
+        .json(&serde_json::json!([{
+            "cluster_id": cluster_id,
+            "match_id": match_id,
+            "metadata_salt": metadata_salt,
+        }]))
+        .send()?;
+    debug!("{:?}", response.text());
+    Ok(())
+}
 
+fn extract_salts(url: &str) -> anyhow::Result<(u64, u64, u64)> {
     let re = Regex::new(r"http://replay(\d+)\.valve\.net/\d+/(\d+)_(\d+)\.meta\.bz2")?;
     let caps = re.captures(url).context("Failed to parse URL")?;
     let cluster_id = caps
@@ -27,18 +37,7 @@ pub(crate) fn ingest_salts(url: &str) -> anyhow::Result<()> {
         .get(3)
         .and_then(|m| m.as_str().parse::<u64>().ok())
         .context("Failed to parse metadata salt")?;
-
-    let client = reqwest::blocking::Client::new();
-    let response = client
-        .post("https://api.deadlock-api.com/v1/matches/salts")
-        .json(&serde_json::json!([{
-            "cluster_id": cluster_id,
-            "match_id": match_id,
-            "metadata_salt": metadata_salt,
-        }]))
-        .send()?;
-    debug!("{:?}", response.text());
-    Ok(())
+    Ok((cluster_id, match_id, metadata_salt))
 }
 
 pub(crate) fn find_http_in_packet(data: &[u8]) -> Option<String> {
@@ -130,8 +129,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_ingest_salts() {
+    fn test_extract_salts() {
         let url = "http://replay404.valve.net/1422450/37959196_937530290.meta.bz2";
-        assert!(ingest_salts(url).is_ok());
+        assert_eq!(
+            extract_salts(url).unwrap(),
+            (404, 37959196, 937530290)
+        );
+        let url = "http://replay400.valve.net/1422450/38090632_88648761.meta.bz2";
+        assert_eq!(
+            extract_salts(url).unwrap(),
+            (400, 38090632, 88648761)
+        );
+    }
+
+    #[test]
+    fn test_parse_http_request() {
+        let http_data = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n";
+        assert_eq!(
+            parse_http_request(http_data).unwrap(),
+            "http://www.example.com/"
+        );
     }
 }
