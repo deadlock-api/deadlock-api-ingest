@@ -402,6 +402,54 @@ store_version_info() {
     log "INFO" "Version information stored: $version"
 }
 
+# Function to prompt user for automatic updater setup
+prompt_for_updater() {
+    local install_updater="true"
+
+    # Check if we're running in an interactive terminal
+    if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then
+        log "INFO" "Non-interactive mode detected. Installing automatic updater by default."
+        return 0
+    fi
+
+    log "INFO" "The automatic updater will check for new versions daily and install them automatically."
+    log "INFO" "This helps keep your installation secure and up-to-date with the latest features."
+    echo >&2
+
+    local attempts=0
+    local max_attempts=2
+
+    while [[ $attempts -lt $max_attempts ]]; do
+        echo -n "Would you like to set up automatic updates? (y/n): " >&2
+
+        local response
+        if read -t 10 -r response; then
+            case "${response,,}" in
+                y|yes)
+                    log "INFO" "User chose to install automatic updater."
+                    return 0
+                    ;;
+                n|no)
+                    log "INFO" "User chose to skip automatic updater installation."
+                    return 1
+                    ;;
+                *)
+                    attempts=$((attempts + 1))
+                    if [[ $attempts -lt $max_attempts ]]; then
+                        echo "Invalid response. Please enter 'y' for yes or 'n' for no." >&2
+                    fi
+                    ;;
+            esac
+        else
+            log "INFO" "No response received within 10 seconds. Installing automatic updater by default."
+            return 0
+        fi
+    done
+
+    log "INFO" "Maximum attempts reached. Installing automatic updater by default."
+    return 0
+}
+
 # --- Main Installation Logic ---
 main() {
     >"$LOG_FILE"
@@ -451,22 +499,34 @@ main() {
     # Create configuration file
     create_config_file
 
-    # Download update checker script
-    download_update_checker
-
     # Create and start main service
     manage_service "create" "$final_executable_path"
     manage_service "start"
 
-    # Create and start update service/timer
-    manage_update_service "create"
-    manage_update_service "start"
+    # Prompt user for automatic updater setup
+    if prompt_for_updater; then
+        # Download update checker script
+        download_update_checker
+
+        # Create and start update service/timer
+        manage_update_service "create"
+        manage_update_service "start"
+
+        log "SUCCESS" "Automatic updater has been installed and configured."
+    else
+        log "INFO" "Skipping automatic updater installation as requested."
+    fi
 
     log "SUCCESS" "🚀 Deadlock API Ingest ($version) has been installed successfully!"
+
     # The final messages should also be sent to stderr to not interfere with any potential scripting.
     {
         echo
-        echo -e "${GREEN}Installation complete with automatic updates enabled.${NC}"
+        if systemctl is-enabled --quiet "$UPDATE_TIMER_NAME.timer" 2>/dev/null; then
+            echo -e "${GREEN}Installation complete with automatic updates enabled.${NC}"
+        else
+            echo -e "${GREEN}Installation complete.${NC}"
+        fi
         echo
         echo -e "You can manage the main service with the following commands:"
         echo -e "  - Check status:  ${YELLOW}systemctl status $SERVICE_NAME${NC}"
@@ -474,15 +534,21 @@ main() {
         echo -e "  - Stop service:  ${YELLOW}systemctl stop $SERVICE_NAME${NC}"
         echo -e "  - Start service: ${YELLOW}systemctl start $SERVICE_NAME${NC}"
         echo
-        echo -e "Automatic update functionality:"
-        echo -e "  - Update timer:  ${YELLOW}systemctl status $UPDATE_TIMER_NAME.timer${NC}"
-        echo -e "  - Update logs:   ${YELLOW}journalctl -u $UPDATE_SERVICE_NAME -f${NC}"
-        echo -e "  - Manual update: ${YELLOW}systemctl start $UPDATE_SERVICE_NAME.service${NC}"
-        echo -e "  - Disable updates: Edit ${YELLOW}$CONFIG_FILE${NC} and set AUTO_UPDATE=\"false\""
+
+        if systemctl is-enabled --quiet "$UPDATE_TIMER_NAME.timer" 2>/dev/null; then
+            echo -e "Automatic update functionality:"
+            echo -e "  - Update timer:  ${YELLOW}systemctl status $UPDATE_TIMER_NAME.timer${NC}"
+            echo -e "  - Update logs:   ${YELLOW}journalctl -u $UPDATE_SERVICE_NAME -f${NC}"
+            echo -e "  - Manual update: ${YELLOW}systemctl start $UPDATE_SERVICE_NAME.service${NC}"
+            echo -e "  - Disable updates: Edit ${YELLOW}$CONFIG_FILE${NC} and set AUTO_UPDATE=\"false\""
+            echo
+            echo -e "Update logs: ${YELLOW}$UPDATE_LOG_FILE${NC}"
+        else
+            echo -e "To enable automatic updates later, you can re-run this installer."
+        fi
         echo
         echo -e "Configuration file: ${YELLOW}$CONFIG_FILE${NC}"
         echo -e "Version file: ${YELLOW}$VERSION_FILE${NC}"
-        echo -e "Update logs: ${YELLOW}$UPDATE_LOG_FILE${NC}"
         echo
     } >&2
 }
