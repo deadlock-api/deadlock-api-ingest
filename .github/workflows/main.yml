@@ -15,10 +15,6 @@ env:
 permissions:
   contents: write
 
-concurrency:
-  cancel-in-progress: true
-  group: ${{ github.workflow }}-${{ github.ref }}
-
 jobs:
   fmt:
     name: Format
