@@ -26,7 +26,7 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-fn init_tracing() {
+fn main() -> anyhow::Result<()> {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or(EnvFilter::new(
         "debug,hyper_util=warn,reqwest=warn,rustls=warn,pktmon=warn,pcap=warn",
     ));
@@ -36,9 +36,6 @@ fn init_tracing() {
         .with(fmt_layer)
         .with(env_filter)
         .init();
-}
-fn main() -> anyhow::Result<()> {
-    init_tracing();
 
     loop {
         if let Err(e) = listen() {
