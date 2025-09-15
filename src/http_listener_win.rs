@@ -4,7 +4,7 @@ use pktmon::filter::{PktMonFilter, TransportProtocol};
 use std::collections::HashSet;
 use tracing::{debug, info, warn};
 
-pub(crate) fn listen() -> anyhow::Result<()> {
+pub(super) fn listen() -> anyhow::Result<()> {
     let mut cap = Capture::new()?;
 
     // Set filter to capture HTTP traffic (both outgoing and incoming on port 80)

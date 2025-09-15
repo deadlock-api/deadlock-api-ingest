@@ -2,7 +2,7 @@ use anyhow::Context;
 use std::str;
 use tracing::debug;
 
-pub(crate) fn ingest_salts(url: &str) -> anyhow::Result<()> {
+pub(super) fn ingest_salts(url: &str) -> anyhow::Result<()> {
     let (cluster_id, match_id, metadata_salt) = extract_salts(url)?;
     let client = reqwest::blocking::Client::new();
     let response = client
@@ -55,7 +55,7 @@ fn extract_salts(url: &str) -> anyhow::Result<(u64, u64, u64)> {
     Ok((cluster_id, match_id, metadata_salt))
 }
 
-pub(crate) fn find_http_in_packet(data: &[u8]) -> Option<String> {
+pub(super) fn find_http_in_packet(data: &[u8]) -> Option<String> {
     (40..=78)
         .step_by(2)
         .filter_map(|start| data.get(start..))
@@ -68,14 +68,14 @@ pub(crate) fn find_http_in_packet(data: &[u8]) -> Option<String> {
         })
 }
 
-pub(crate) fn try_partial_utf8(data: &[u8]) -> Option<String> {
+fn try_partial_utf8(data: &[u8]) -> Option<String> {
     (100..data.len().min(2000))
         .step_by(50)
         .rev()
         .find_map(|end| str::from_utf8(&data[..end]).ok().map(ToString::to_string))
 }
 
-pub(crate) fn parse_http_request(http_data: &str) -> Option<String> {
+pub(super) fn parse_http_request(http_data: &str) -> Option<String> {
     let mut lines = http_data.lines();
 
     // Parse the request line

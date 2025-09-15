@@ -4,7 +4,7 @@ use pcap::{Capture, Device};
 use std::collections::HashSet;
 use tracing::{debug, info, warn};
 
-pub(crate) fn listen() -> anyhow::Result<()> {
+pub(super) fn listen() -> anyhow::Result<()> {
     let device = Device::lookup()?.context("Failed to find network device")?;
 
     info!(
