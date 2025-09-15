@@ -41,6 +41,30 @@ function Write-Log {
     Add-Content -Path $LogFile -Value $LogMessage
 }
 
+# Function to execute commands quietly while logging details
+function Invoke-Quietly {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Description,
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$ScriptBlock
+    )
+
+    Write-Log -Level 'INFO' $Description
+
+    try {
+        # Capture output and redirect to log file
+        $output = & $ScriptBlock 2>&1
+        Add-Content -Path $LogFile -Value $output
+        return $true
+    }
+    catch {
+        Write-Log -Level 'ERROR' "Command failed: $($_.Exception.Message)"
+        Add-Content -Path $LogFile -Value "Error: $($_.Exception.Message)"
+        return $false
+    }
+}
+
 # Function to check for Administrator privileges
 function Test-IsAdmin {
     $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -79,13 +103,13 @@ function Get-LatestRelease {
 
 # Function to download the update checker script
 function Get-UpdateChecker {
-    Write-Log -Level 'INFO' "Downloading update checker script from GitHub..."
+    Write-Log -Level 'INFO' "Downloading update checker script..."
 
     $UpdateScriptUrl = "https://raw.githubusercontent.com/$GithubRepo/master/update-checker.ps1"
 
     try {
         Invoke-WebRequest -Uri $UpdateScriptUrl -OutFile $UpdateScriptPath -UseBasicParsing
-        Write-Log -Level 'SUCCESS' "Update checker script downloaded and installed."
+        Write-Log -Level 'SUCCESS' "Update checker script installed."
     } catch {
         Write-Log -Level 'ERROR' "Failed to download update checker script: $($_.Exception.Message)"
         exit 1
@@ -103,12 +127,12 @@ function Manage-StartupTask {
 
     switch ($Action) {
         'Remove' {
-            Write-Log -Level 'INFO' "Removing any existing scheduled task named '$AppName'..."
-            Unregister-ScheduledTask -TaskName $AppName -Confirm:$false -ErrorAction SilentlyContinue
-            Write-Log -Level 'SUCCESS' "Scheduled task cleanup complete."
+            Invoke-Quietly "Removing existing scheduled task..." {
+                Unregister-ScheduledTask -TaskName $AppName -Confirm:$false -ErrorAction SilentlyContinue
+            } | Out-Null
         }
         'Create' {
-            Write-Log -Level 'INFO' "Creating a new scheduled task to run on startup..."
+            Write-Log -Level 'INFO' "Creating startup task..."
 
             # Define the action (what program to run and its working directory)
             $taskAction = New-ScheduledTaskAction -Execute $ExecutablePath -WorkingDirectory $InstallDir
@@ -123,9 +147,9 @@ function Manage-StartupTask {
             $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0
 
             # Register the task with the system
-            Register-ScheduledTask -TaskName $AppName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Runs the Deadlock API Ingest application on system startup."
+            Register-ScheduledTask -TaskName $AppName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Runs the Deadlock API Ingest application on system startup." | Out-Null
 
-            Write-Log -Level 'SUCCESS' "Scheduled task created successfully."
+            Write-Log -Level 'SUCCESS' "Startup task created successfully."
         }
     }
 }
@@ -140,12 +164,12 @@ function Manage-UpdateTask {
 
     switch ($Action) {
         'Remove' {
-            Write-Log -Level 'INFO' "Removing any existing update scheduled task..."
-            Unregister-ScheduledTask -TaskName $UpdateTaskName -Confirm:$false -ErrorAction SilentlyContinue
-            Write-Log -Level 'SUCCESS' "Update task cleanup complete."
+            Invoke-Quietly "Removing existing update task..." {
+                Unregister-ScheduledTask -TaskName $UpdateTaskName -Confirm:$false -ErrorAction SilentlyContinue
+            } | Out-Null
         }
         'Create' {
-            Write-Log -Level 'INFO' "Creating update scheduled task..."
+            Write-Log -Level 'INFO' "Creating automatic update task..."
 
             # Define the action (run PowerShell with the update script)
             $taskAction = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-ExecutionPolicy Bypass -File `"$UpdateScriptPath`"" -WorkingDirectory $InstallDir
@@ -161,10 +185,11 @@ function Manage-UpdateTask {
             $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1) -StartWhenAvailable
 
             # Register the task with the system
-            Register-ScheduledTask -TaskName $UpdateTaskName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Daily update checker for Deadlock API Ingest application."
+            Register-ScheduledTask -TaskName $UpdateTaskName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Daily update checker for Deadlock API Ingest application." | Out-Null
 
-            Write-Log -Level 'SUCCESS' "Update scheduled task created successfully."
-            Write-Log -Level 'INFO' "Update task will run daily at 3:00 AM (with up to 30 minute random delay)."
+            Write-Log -Level 'SUCCESS' "Automatic updates enabled."
+            # Log detailed schedule info to file only
+            Add-Content -Path $LogFile -Value "Update task will run daily at 3:00 AM (with up to 30 minute random delay)."
         }
     }
 }
@@ -218,10 +243,9 @@ $release = Get-LatestRelease
 Manage-StartupTask -Action 'Remove'
 Manage-UpdateTask -Action 'Remove'
 
-Write-Log -Level 'INFO' "Stopping any currently running instance of '$AppName'..."
+Write-Log -Level 'INFO' "Preparing installation environment..."
 Stop-Process -Name $AppName -Force -ErrorAction SilentlyContinue
 
-Write-Log -Level 'INFO' "Creating installation directory: $InstallDir"
 New-Item -Path $InstallDir -ItemType Directory -Force | Out-Null
 New-Item -Path $BackupDir -ItemType Directory -Force | Out-Null
 
@@ -230,7 +254,9 @@ $UpdateLogDir = Split-Path -Parent $UpdateLogFile
 New-Item -Path $UpdateLogDir -ItemType Directory -Force | Out-Null
 
 $downloadPath = Join-Path -Path $InstallDir -ChildPath $FinalExecutableName
-Write-Log -Level 'INFO' "Downloading $($release.DownloadUrl)..."
+Write-Log -Level 'INFO' "Downloading application binary..."
+# Log detailed URL to file only
+Add-Content -Path $LogFile -Value "Downloading from: $($release.DownloadUrl)"
 Invoke-WebRequest -Uri $release.DownloadUrl -OutFile $downloadPath -UseBasicParsing
 
 # Verify file size
@@ -239,9 +265,11 @@ if ($actualSize -ne $release.Size) {
     Write-Log -Level 'ERROR' "File size mismatch! Expected: $($release.Size) bytes, Got: $actualSize bytes."
     exit 1
 }
-Write-Log -Level 'SUCCESS' "File integrity verified."
+Write-Log -Level 'SUCCESS' "Download complete and verified."
 
 Unblock-File -Path $downloadPath
+
+Write-Log -Level 'INFO' "Installing application..."
 
 # Store version information
 Set-VersionInfo -Version $release.Version

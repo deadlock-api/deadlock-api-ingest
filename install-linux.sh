@@ -66,6 +66,24 @@ log() {
     echo "$log_message" >> "$LOG_FILE"
 }
 
+# Function to execute commands quietly while logging details
+execute_quietly() {
+    local description="$1"
+    shift
+    local cmd=("$@")
+
+    log "INFO" "$description"
+
+    # Execute command and capture both stdout and stderr to log file
+    if "${cmd[@]}" >> "$LOG_FILE" 2>&1; then
+        return 0
+    else
+        local exit_code=$?
+        log "ERROR" "Command failed: ${cmd[*]}"
+        return $exit_code
+    fi
+}
+
 # Function to check if running with root/sudo privileges
 check_privileges() {
     if [[ $EUID -ne 0 ]]; then
@@ -81,7 +99,7 @@ check_privileges() {
 
 # Function to install required dependencies
 install_dependencies() {
-    log "INFO" "Checking and installing required dependencies (curl, wget, jq, libpcap)..."
+    log "INFO" "Checking required dependencies..."
 
     local pkgs_to_install=()
     for pkg in curl wget jq; do
@@ -98,22 +116,26 @@ install_dependencies() {
     fi
 
     if [[ ${#pkgs_to_install[@]} -eq 0 ]]; then
-        log "INFO" "All dependencies are already installed."
+        log "SUCCESS" "All dependencies are already installed."
         return
     fi
 
-    log "INFO" "Attempting to install: ${pkgs_to_install[*]}"
+    log "INFO" "Installing dependencies: ${pkgs_to_install[*]}"
     if command -v apt-get >/dev/null 2>&1; then
-        apt-get update -qq && apt-get install -y "${pkgs_to_install[@]}"
+        execute_quietly "Updating package lists..." apt-get update -qq
+        execute_quietly "Installing packages..." apt-get install -y "${pkgs_to_install[@]}"
     elif command -v dnf >/dev/null 2>&1; then
-        dnf install -y "${pkgs_to_install[@]}"
+        execute_quietly "Installing packages..." dnf install -y "${pkgs_to_install[@]}"
     elif command -v yum >/dev/null 2>&1; then
-        yum install -y "${pkgs_to_install[@]}"
+        execute_quietly "Installing packages..." yum install -y "${pkgs_to_install[@]}"
     elif command -v pacman >/dev/null 2>&1; then
-        pacman -Sy --noconfirm "${pkgs_to_install[@]}"
+        execute_quietly "Installing packages..." pacman -Sy --noconfirm "${pkgs_to_install[@]}"
     else
         log "WARN" "Could not detect package manager. Please install missing packages manually: ${pkgs_to_install[*]}"
+        return
     fi
+
+    log "SUCCESS" "Dependencies installed successfully."
 }
 
 # Function to get latest release info from GitHub API
@@ -153,11 +175,14 @@ download_file() {
     local output_path="$2"
     local expected_size="$3"
 
-    log "INFO" "Downloading from: $url"
-    log "INFO" "Saving to: $output_path"
+    log "INFO" "Downloading application binary..."
     mkdir -p "$(dirname "$output_path")"
 
-    if ! wget --progress=bar:force --user-agent="Bash-Installer" -O "$output_path" "$url"; then
+    # Log detailed info to file, show simple progress to user
+    echo "Downloading from: $url" >> "$LOG_FILE"
+    echo "Saving to: $output_path" >> "$LOG_FILE"
+
+    if ! wget --progress=dot:giga --user-agent="Bash-Installer" -O "$output_path" "$url" 2>> "$LOG_FILE"; then
         log "ERROR" "Download failed."
         exit 1
     fi
@@ -177,17 +202,17 @@ download_file() {
 
 # Function to download the update checker script
 download_update_checker() {
-    log "INFO" "Downloading update checker script from GitHub..."
+    log "INFO" "Downloading update checker script..."
 
     local update_script_url="https://raw.githubusercontent.com/$GITHUB_REPO/master/update-checker.sh"
 
-    if ! wget --progress=bar:force --user-agent="Bash-Installer" -O "$UPDATE_SCRIPT_PATH" "$update_script_url"; then
+    if ! wget --quiet --user-agent="Bash-Installer" -O "$UPDATE_SCRIPT_PATH" "$update_script_url" 2>> "$LOG_FILE"; then
         log "ERROR" "Failed to download update checker script."
         exit 1
     fi
 
     chmod +x "$UPDATE_SCRIPT_PATH"
-    log "SUCCESS" "Update checker script downloaded and installed."
+    log "SUCCESS" "Update checker script installed."
 }
 
 # Function to manage the systemd service
@@ -197,23 +222,20 @@ manage_service() {
     case "$action" in
         "remove")
             if systemctl is-active --quiet "$SERVICE_NAME"; then
-                log "INFO" "Stopping existing service..."
-                systemctl stop "$SERVICE_NAME"
+                execute_quietly "Stopping existing service..." systemctl stop "$SERVICE_NAME"
             fi
             if systemctl is-enabled --quiet "$SERVICE_NAME"; then
-                log "INFO" "Disabling existing service..."
-                systemctl disable "$SERVICE_NAME"
+                execute_quietly "Disabling existing service..." systemctl disable "$SERVICE_NAME"
             fi
             if [[ -f "$SYSTEMD_SERVICE_FILE" ]]; then
-                log "INFO" "Removing existing service file..."
                 rm -f "$SYSTEMD_SERVICE_FILE"
             fi
-            systemctl daemon-reload
+            systemctl daemon-reload 2>> "$LOG_FILE"
             ;;
         "create")
             local executable_path="$2"
 
-            log "INFO" "Creating systemd service file..."
+            log "INFO" "Creating system service..."
             cat > "$SYSTEMD_SERVICE_FILE" << EOF
 [Unit]
 Description=Deadlock API Ingest Service
@@ -242,18 +264,18 @@ PrivateTmp=true
 WantedBy=multi-user.target
 EOF
             chmod 644 "$SYSTEMD_SERVICE_FILE"
-            systemctl daemon-reload
-            log "SUCCESS" "Systemd service created."
+            systemctl daemon-reload 2>> "$LOG_FILE"
+            log "SUCCESS" "System service created."
             ;;
         "start")
-            log "INFO" "Enabling and starting the service..."
-            systemctl enable "$SERVICE_NAME"
-            systemctl start "$SERVICE_NAME"
+            log "INFO" "Starting application service..."
+            execute_quietly "Enabling service..." systemctl enable "$SERVICE_NAME"
+            execute_quietly "Starting service..." systemctl start "$SERVICE_NAME"
 
             sleep 3
 
             if systemctl is-active --quiet "$SERVICE_NAME"; then
-                log "SUCCESS" "Service started successfully."
+                log "SUCCESS" "Application service started successfully."
             else
                 log "ERROR" "Service failed to start. Please check the logs."
                 log "INFO" "To check status: systemctl status $SERVICE_NAME"
@@ -272,38 +294,32 @@ manage_update_service() {
         "remove")
             # Stop and disable timer
             if systemctl is-active --quiet "$UPDATE_TIMER_NAME.timer"; then
-                log "INFO" "Stopping existing update timer..."
-                systemctl stop "$UPDATE_TIMER_NAME.timer"
+                execute_quietly "Stopping existing update timer..." systemctl stop "$UPDATE_TIMER_NAME.timer"
             fi
             if systemctl is-enabled --quiet "$UPDATE_TIMER_NAME.timer"; then
-                log "INFO" "Disabling existing update timer..."
-                systemctl disable "$UPDATE_TIMER_NAME.timer"
+                execute_quietly "Disabling existing update timer..." systemctl disable "$UPDATE_TIMER_NAME.timer"
             fi
 
             # Stop and disable service
             if systemctl is-active --quiet "$UPDATE_SERVICE_NAME.service"; then
-                log "INFO" "Stopping existing update service..."
-                systemctl stop "$UPDATE_SERVICE_NAME.service"
+                execute_quietly "Stopping existing update service..." systemctl stop "$UPDATE_SERVICE_NAME.service"
             fi
             if systemctl is-enabled --quiet "$UPDATE_SERVICE_NAME.service"; then
-                log "INFO" "Disabling existing update service..."
-                systemctl disable "$UPDATE_SERVICE_NAME.service"
+                execute_quietly "Disabling existing update service..." systemctl disable "$UPDATE_SERVICE_NAME.service"
             fi
 
             # Remove files
             if [[ -f "$UPDATE_SYSTEMD_TIMER_FILE" ]]; then
-                log "INFO" "Removing existing update timer file..."
                 rm -f "$UPDATE_SYSTEMD_TIMER_FILE"
             fi
             if [[ -f "$UPDATE_SYSTEMD_SERVICE_FILE" ]]; then
-                log "INFO" "Removing existing update service file..."
                 rm -f "$UPDATE_SYSTEMD_SERVICE_FILE"
             fi
 
-            systemctl daemon-reload
+            systemctl daemon-reload 2>> "$LOG_FILE"
             ;;
         "create")
-            log "INFO" "Creating update systemd service and timer..."
+            log "INFO" "Creating automatic update service..."
 
             # Create the update service file
             cat > "$UPDATE_SYSTEMD_SERVICE_FILE" << EOF
@@ -346,17 +362,18 @@ EOF
 
             chmod 644 "$UPDATE_SYSTEMD_SERVICE_FILE"
             chmod 644 "$UPDATE_SYSTEMD_TIMER_FILE"
-            systemctl daemon-reload
-            log "SUCCESS" "Update systemd service and timer created."
+            systemctl daemon-reload 2>> "$LOG_FILE"
+            log "SUCCESS" "Automatic update service created."
             ;;
         "start")
-            log "INFO" "Enabling and starting the update timer..."
-            systemctl enable "$UPDATE_TIMER_NAME.timer"
-            systemctl start "$UPDATE_TIMER_NAME.timer"
+            log "INFO" "Starting automatic update timer..."
+            execute_quietly "Enabling update timer..." systemctl enable "$UPDATE_TIMER_NAME.timer"
+            execute_quietly "Starting update timer..." systemctl start "$UPDATE_TIMER_NAME.timer"
 
             if systemctl is-active --quiet "$UPDATE_TIMER_NAME.timer"; then
-                log "SUCCESS" "Update timer started successfully."
-                log "INFO" "Next update check: $(systemctl list-timers --no-pager | grep "$UPDATE_TIMER_NAME" | awk '{print $1, $2}')"
+                log "SUCCESS" "Automatic updates enabled."
+                # Log detailed timer info to file only
+                echo "Next update check: $(systemctl list-timers --no-pager | grep "$UPDATE_TIMER_NAME" | awk '{print $1, $2}')" >> "$LOG_FILE"
             else
                 log "ERROR" "Update timer failed to start."
                 log "INFO" "To check status: systemctl status $UPDATE_TIMER_NAME.timer"
@@ -474,10 +491,9 @@ main() {
     manage_service "remove"
     manage_update_service "remove"
 
-    log "INFO" "Stopping any currently running instance of '$APP_NAME'..."
-    killall "$APP_NAME" || true
+    log "INFO" "Preparing installation environment..."
+    killall "$APP_NAME" 2>/dev/null || true
 
-    log "INFO" "Setting up installation directory: $INSTALL_DIR"
     mkdir -p "$INSTALL_DIR"
     mkdir -p "$BACKUP_DIR"
 
@@ -485,13 +501,13 @@ main() {
     download_file "$download_url" "$temp_download_path" "$size"
 
     local final_executable_path="$INSTALL_DIR/$FINAL_EXECUTABLE_NAME"
-    log "INFO" "Installing executable to $final_executable_path"
+    log "INFO" "Installing application..."
     mv "$temp_download_path" "$final_executable_path"
     chmod +x "$final_executable_path"
 
     local bin_symlink="$BIN_DIR/$FINAL_EXECUTABLE_NAME"
-    log "INFO" "Creating symlink for easy access at $bin_symlink"
     ln -sf "$final_executable_path" "$bin_symlink"
+    log "SUCCESS" "Application installed successfully."
 
     # Store version information
     store_version_info "$version"
