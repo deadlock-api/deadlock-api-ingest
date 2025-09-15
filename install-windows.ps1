@@ -283,6 +283,9 @@ Get-UpdateChecker
 # Create the main scheduled task
 Manage-StartupTask -Action 'Create' -ExecutablePath $downloadPath
 
+# Start the main task
+Start-ScheduledTask -TaskName $AppName
+
 # Create the update scheduled task
 Manage-UpdateTask -Action 'Create'
 
