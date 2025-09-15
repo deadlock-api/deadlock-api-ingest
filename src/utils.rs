@@ -33,7 +33,7 @@ pub(super) fn ingest_salts(url: &str) -> anyhow::Result<()> {
     let salts = Salts::from_url(url).context("Failed to extract salts from URL")?;
     let response = reqwest::blocking::Client::new()
         .post("https://api.deadlock-api.com/v1/matches/salts")
-        .json(&salts)
+        .json(&[salts])
         .send()?;
     debug!("{:?}", response.text());
     Ok(())
