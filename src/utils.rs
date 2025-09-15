@@ -1,58 +1,42 @@
 use anyhow::Context;
+use serde::Serialize;
 use std::str;
 use tracing::debug;
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Hash)]
+struct Salts {
+    match_id: u64,
+    cluster_id: u32,
+    metadata_salt: u32,
+}
+
+impl Salts {
+    fn from_url(url: &str) -> Option<Self> {
+        let (cluster_str, remaining) = url
+            .strip_prefix("http://replay")?
+            .split_once(".valve.net/")?;
+        let (match_str, salt_str) = remaining
+            .rsplit_once('/')
+            .map(|(_, name)| name)?
+            .strip_suffix(".meta.bz2")?
+            .split_once('_')?;
+        Self {
+            cluster_id: cluster_str.parse().ok()?,
+            match_id: match_str.parse().ok()?,
+            metadata_salt: salt_str.parse().ok()?,
+        }
+        .into()
+    }
+}
+
 pub(super) fn ingest_salts(url: &str) -> anyhow::Result<()> {
-    let (cluster_id, match_id, metadata_salt) = extract_salts(url)?;
-    let client = reqwest::blocking::Client::new();
-    let response = client
+    let salts = Salts::from_url(url).context("Failed to extract salts from URL")?;
+    let response = reqwest::blocking::Client::new()
         .post("https://api.deadlock-api.com/v1/matches/salts")
-        .json(&serde_json::json!([{
-            "cluster_id": cluster_id,
-            "match_id": match_id,
-            "metadata_salt": metadata_salt,
-        }]))
+        .json(&salts)
         .send()?;
     debug!("{:?}", response.text());
     Ok(())
-}
-
-fn extract_salts(url: &str) -> anyhow::Result<(u64, u64, u64)> {
-    // 1. Isolate the cluster ID
-    // Expects "http://replay<cluster>.valve.net/..."
-    let remaining = url
-        .strip_prefix("http://replay")
-        .context("URL missing 'http://replay' prefix")?;
-    let (cluster_str, remaining) = remaining
-        .split_once(".valve.net/")
-        .context("URL missing '.valve.net/' separator")?;
-    let cluster_id = cluster_str
-        .parse::<u64>()
-        .context("Failed to parse cluster ID")?;
-
-    // 2. Isolate the filename and remove the extension
-    // Expects ".../<match>_<salt>.meta.bz2"
-    let filename = remaining
-        .rsplit_once('/')
-        .map(|(_, name)| name) // Get the part after the last '/'
-        .context("URL missing filename component")?;
-    let ids_str = filename
-        .strip_suffix(".meta.bz2")
-        .context("Filename missing '.meta.bz2' suffix")?;
-
-    // 3. Split the remaining string to get match ID and salt
-    // Expects "<match>_<salt>"
-    let (match_str, salt_str) = ids_str
-        .split_once('_')
-        .context("Filename missing '_' separator")?;
-    let match_id = match_str
-        .parse::<u64>()
-        .context("Failed to parse match ID")?;
-    let metadata_salt = salt_str
-        .parse::<u64>()
-        .context("Failed to parse metadata salt")?;
-
-    Ok((cluster_id, match_id, metadata_salt))
 }
 
 pub(super) fn find_http_in_packet(data: &[u8]) -> Option<String> {
@@ -113,9 +97,23 @@ mod tests {
     #[test]
     fn test_extract_salts() {
         let url = "http://replay404.valve.net/1422450/37959196_937530290.meta.bz2";
-        assert_eq!(extract_salts(url).unwrap(), (404, 37959196, 937530290));
+        assert_eq!(
+            Salts::from_url(url).unwrap(),
+            Salts {
+                cluster_id: 404,
+                match_id: 37959196,
+                metadata_salt: 937530290,
+            }
+        );
         let url = "http://replay400.valve.net/1422450/38090632_88648761.meta.bz2";
-        assert_eq!(extract_salts(url).unwrap(), (400, 38090632, 88648761));
+        assert_eq!(
+            Salts::from_url(url).unwrap(),
+            Salts {
+                cluster_id: 400,
+                match_id: 38090632,
+                metadata_salt: 88648761,
+            }
+        );
     }
 
     #[test]
