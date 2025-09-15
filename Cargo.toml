@@ -10,11 +10,18 @@ edition = "2024"
 serde_json = "1"
 anyhow = "1.0.99"
 tracing = "0.1.41"
-reqwest = { version = "0.12.23", features = ["blocking", "json"] }
-tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+reqwest = { version = "0.12.23", features = ["blocking", "json"], default-features = false }
+tracing-subscriber = { version = "0.3.20", features = ["std", "registry", "fmt", "env-filter"], default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 pktmon = "0.6.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 pcap = "2.3.0"
+
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
