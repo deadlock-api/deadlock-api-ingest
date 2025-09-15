@@ -152,7 +152,6 @@ dependencies = [
  "pktmon",
  "reqwest",
  "serde",
- "serde_json",
  "tracing",
  "tracing-subscriber",
 ]
