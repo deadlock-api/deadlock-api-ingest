@@ -90,14 +90,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: 'ubuntu-latest'
-            target: 'x86_64-unknown-linux-gnu'
-            binary_name: 'deadlock-api-ingest'
-            asset_name: 'deadlock-api-ingest-ubuntu-latest'
-          - platform: 'windows-latest'
-            target: 'x86_64-pc-windows-msvc'
-            binary_name: 'deadlock-api-ingest.exe'
-            asset_name: 'deadlock-api-ingest-windows-latest.exe'
+          - platform: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary_name: deadlock-api-ingest
+            asset_name: deadlock-api-ingest-ubuntu-latest
+          - platform: windows-latest
+            target: x86_64-pc-windows-gn
+            binary_name: deadlock-api-ingest.exe
+            asset_name: deadlock-api-ingest-windows-latest.exe
     runs-on: ${{ matrix.platform }}
     outputs:
       version: ${{ steps.version.outputs.version }}
