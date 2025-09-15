@@ -1,5 +1,4 @@
 use anyhow::Context;
-use regex::Regex;
 use std::str;
 use tracing::debug;
 
@@ -23,20 +22,40 @@ pub(crate) fn ingest_salts(url: &str) -> anyhow::Result<()> {
 }
 
 fn extract_salts(url: &str) -> anyhow::Result<(u64, u64, u64)> {
-    let re = Regex::new(r"http://replay(\d+)\.valve\.net/\d+/(\d+)_(\d+)\.meta\.bz2")?;
-    let caps = re.captures(url).context("Failed to parse URL")?;
-    let cluster_id = caps
-        .get(1)
-        .and_then(|m| m.as_str().parse::<u64>().ok())
+    // 1. Isolate the cluster ID
+    // Expects "http://replay<cluster>.valve.net/..."
+    let remaining = url
+        .strip_prefix("http://replay")
+        .context("URL missing 'http://replay' prefix")?;
+    let (cluster_str, remaining) = remaining
+        .split_once(".valve.net/")
+        .context("URL missing '.valve.net/' separator")?;
+    let cluster_id = cluster_str
+        .parse::<u64>()
         .context("Failed to parse cluster ID")?;
-    let match_id = caps
-        .get(2)
-        .and_then(|m| m.as_str().parse::<u64>().ok())
+
+    // 2. Isolate the filename and remove the extension
+    // Expects ".../<match>_<salt>.meta.bz2"
+    let filename = remaining
+        .rsplit_once('/')
+        .map(|(_, name)| name) // Get the part after the last '/'
+        .context("URL missing filename component")?;
+    let ids_str = filename
+        .strip_suffix(".meta.bz2")
+        .context("Filename missing '.meta.bz2' suffix")?;
+
+    // 3. Split the remaining string to get match ID and salt
+    // Expects "<match>_<salt>"
+    let (match_str, salt_str) = ids_str
+        .split_once('_')
+        .context("Filename missing '_' separator")?;
+    let match_id = match_str
+        .parse::<u64>()
         .context("Failed to parse match ID")?;
-    let metadata_salt = caps
-        .get(3)
-        .and_then(|m| m.as_str().parse::<u64>().ok())
+    let metadata_salt = salt_str
+        .parse::<u64>()
         .context("Failed to parse metadata salt")?;
+
     Ok((cluster_id, match_id, metadata_salt))
 }
 

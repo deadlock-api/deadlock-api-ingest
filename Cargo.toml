@@ -11,7 +11,6 @@ serde_json = "1"
 anyhow = "1.0.99"
 tracing = "0.1.41"
 reqwest = { version = "0.12.23", features = ["blocking", "json"] }
-regex = "1.11.2"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]

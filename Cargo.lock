@@ -150,7 +150,6 @@ dependencies = [
  "anyhow",
  "pcap",
  "pktmon",
- "regex",
  "reqwest",
  "serde_json",
  "tracing",
