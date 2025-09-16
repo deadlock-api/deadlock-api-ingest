@@ -11,7 +11,7 @@ anyhow = "1.0.99"
 tracing = "0.1.41"
 reqwest = { version = "0.12.23", features = ["blocking", "json"] }
 tracing-subscriber = { version = "0.3.20", features = ["std", "registry", "fmt", "env-filter"], default-features = false }
-serde = { version = "1.0.224", features = ["derive"] }
+serde = { version = "1.0.225", features = ["derive"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 pktmon = "0.6.2"
