@@ -11,7 +11,7 @@ use tracing::{debug, info, warn};
 pub(crate) trait HttpListener {
     /// Return an iterator of packet payloads (each as a Vec<u8>).
     /// Implementations may return an error if the capture cannot be set up.
-    fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item=Vec<u8>>>>;
+    fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item = Vec<u8>>>>;
 
     /// Start listening and process payloads produced by `payloads()`.
     fn listen(&self) -> anyhow::Result<()> {
@@ -108,7 +108,7 @@ pub(super) struct PlatformListener;
 
 #[cfg(target_os = "windows")]
 impl HttpListener for PlatformListener {
-    fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item=Vec<u8>>>> {
+    fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item = Vec<u8>>>> {
         let mut cap = pktmon::Capture::new()?;
 
         // Set filter to capture HTTP traffic (both outgoing and incoming on port 80)
@@ -140,7 +140,7 @@ impl HttpListener for PlatformListener {
 
 #[cfg(target_os = "linux")]
 impl HttpListener for PlatformListener {
-    fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item=Vec<u8>>>> {
+    fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item = Vec<u8>>>> {
         let device = Device::lookup()?.context("Failed to find network device")?;
 
         info!(
@@ -184,7 +184,7 @@ mod tests {
 
     struct DummyListener;
     impl HttpListener for DummyListener {
-        fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item=Vec<u8>>>> {
+        fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item = Vec<u8>>>> {
             Ok(Box::new(core::iter::empty::<Vec<u8>>()))
         }
     }
