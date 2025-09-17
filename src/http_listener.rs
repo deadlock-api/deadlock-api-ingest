@@ -1,5 +1,4 @@
 use crate::utils::Salts;
-use anyhow::Context;
 use std::collections::HashSet;
 use std::str;
 use tracing::{debug, info, warn};
@@ -126,8 +125,6 @@ impl HttpListener for PlatformListener {
                     Ok(packet) => return Some(packet.payload.to_vec().clone()),
                     Err(e) => {
                         warn!("Error reading packet: {e}");
-                        // Continue the loop to try again; pktmon errors may be transient.
-                        continue;
                     }
                 }
             }
@@ -137,6 +134,8 @@ impl HttpListener for PlatformListener {
     }
 }
 
+#[cfg(target_os = "linux")]
+use anyhow::Context;
 #[cfg(target_os = "linux")]
 impl HttpListener for PlatformListener {
     fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item = Vec<u8>>>> {
