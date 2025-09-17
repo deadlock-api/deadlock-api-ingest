@@ -1,6 +1,5 @@
 use crate::utils::Salts;
 use anyhow::Context;
-use pcap::{Capture, Device};
 use std::collections::HashSet;
 use std::str;
 use tracing::{debug, info, warn};
@@ -141,7 +140,7 @@ impl HttpListener for PlatformListener {
 #[cfg(target_os = "linux")]
 impl HttpListener for PlatformListener {
     fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item = Vec<u8>>>> {
-        let device = Device::lookup()?.context("Failed to find network device")?;
+        let device = pcap::Device::lookup()?.context("Failed to find network device")?;
 
         info!(
             "Monitoring device: {} ({})",
@@ -149,7 +148,7 @@ impl HttpListener for PlatformListener {
             device.desc.as_deref().unwrap_or("no description")
         );
 
-        let mut cap = Capture::from_device(device)?
+        let mut cap = pcap::Capture::from_device(device)?
             .promisc(true)
             .snaplen(65536) // Capture full packets
             .timeout(100) // Shorter timeout for more responsive capture
