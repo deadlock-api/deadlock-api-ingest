@@ -41,27 +41,48 @@ sudo ./install-linux.sh
 
 ### Windows
 ```powershell
-# Stop and remove service
-Stop-Service DeadlockAPIIngest
-sc.exe delete DeadlockAPIIngest
+# Stop and remove scheduled tasks (main + updater)
+Stop-ScheduledTask -TaskName "deadlock-api-ingest" -ErrorAction SilentlyContinue
+Unregister-ScheduledTask -TaskName "deadlock-api-ingest" -Confirm:$false -ErrorAction SilentlyContinue
 
-# Remove installation directory
-Remove-Item "C:\Program Files\deadlock-api-ingest" -Recurse -Force
+Stop-ScheduledTask -TaskName "deadlock-api-ingest-updater" -ErrorAction SilentlyContinue
+Unregister-ScheduledTask -TaskName "deadlock-api-ingest-updater" -Confirm:$false -ErrorAction SilentlyContinue
+
+# Stop any running process (if still running)
+Stop-Process -Name "deadlock-api-ingest" -Force -ErrorAction SilentlyContinue
+
+# Remove installation directory and related data
+Remove-Item "$env:ProgramFiles\deadlock-api-ingest" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item "$env:ProgramData\deadlock-api-ingest" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
 ### Linux
 ```bash
-# Stop and disable service
-sudo systemctl stop deadlock-api-ingest
-sudo systemctl disable deadlock-api-ingest
+# Stop and disable main service
+sudo systemctl stop deadlock-api-ingest || true
+sudo systemctl disable deadlock-api-ingest || true
 
-# Remove service file
-sudo rm /etc/systemd/system/deadlock-api-ingest.service
+# Stop and disable automatic updater (if installed)
+sudo systemctl stop deadlock-api-ingest-updater.timer || true
+sudo systemctl disable deadlock-api-ingest-updater.timer || true
+sudo systemctl stop deadlock-api-ingest-updater.service || true
+sudo systemctl disable deadlock-api-ingest-updater.service || true
+
+# Remove systemd unit files
+sudo rm -f /etc/systemd/system/deadlock-api-ingest.service
+sudo rm -f /etc/systemd/system/deadlock-api-ingest-updater.service
+sudo rm -f /etc/systemd/system/deadlock-api-ingest-updater.timer
+
+# Reload systemd state
 sudo systemctl daemon-reload
+sudo systemctl reset-failed || true
 
-# Remove installation
+# Remove installation and symlink
 sudo rm -rf /opt/deadlock-api-ingest
-sudo rm /usr/local/bin/deadlock-api-ingest
+sudo rm -f /usr/local/bin/deadlock-api-ingest
+
+# Optional: remove updater log file (if present)
+sudo rm -f /var/log/deadlock-api-ingest-updater.log
 ```
 
 ## Automated Releases
