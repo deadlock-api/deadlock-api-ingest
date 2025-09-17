@@ -9,22 +9,13 @@
 #![deny(clippy::pedantic)]
 #![deny(clippy::std_instead_of_core)]
 #![allow(clippy::unreadable_literal)]
+mod http_listener;
 mod utils;
 
-#[cfg(target_os = "linux")]
-mod http_listener_linux;
-#[cfg(target_os = "windows")]
-mod http_listener_win;
-
-#[cfg(target_os = "linux")]
-use http_listener_linux::listen;
-#[cfg(target_os = "windows")]
-use http_listener_win::listen;
-
+use crate::http_listener::{HttpListener, PlatformListener};
 use tracing::error;
 use tracing_subscriber::EnvFilter;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::prelude::*;
 
 fn main() -> anyhow::Result<()> {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or(EnvFilter::new(
@@ -38,7 +29,7 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     loop {
-        if let Err(e) = listen() {
+        if let Err(e) = PlatformListener.listen() {
             error!("Error in HTTP listener: {e}");
         }
         std::thread::sleep(core::time::Duration::from_secs(10));
