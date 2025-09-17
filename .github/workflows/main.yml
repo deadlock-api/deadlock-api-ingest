@@ -58,10 +58,19 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - platform: windows-latest
+            target: x86_64-pc-windows-gnu
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v5
       - name: Install Build Tools
+        if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libpcap-dev
@@ -73,11 +82,9 @@ jobs:
         run: |
           rustup override set stable
           rustup update stable
-          rustup component add clippy
+          rustup target add ${{ matrix.target }}
       - name: Cargo Clippy (Deny Warnings)
         run: cargo clippy --all-targets --locked -- -D warnings
-      - name: Cargo Clippy (Allow Warnings)
-        run: cargo clippy --all-targets --locked
 
   build:
     name: Build
