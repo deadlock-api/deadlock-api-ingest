@@ -81,7 +81,7 @@ jobs:
 
   build:
     name: Build
-    needs: [fmt, deps, typos, lint]
+    needs: [ fmt, deps, typos, lint ]
     strategy:
       fail-fast: false
       matrix:
@@ -176,12 +176,12 @@ jobs:
 
             **Windows (PowerShell - Run as Administrator):**
             ```powershell
-            irm https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install-windows.ps1 | iex
+            irm https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/setup/install-windows.ps1 | iex
             ```
 
             **Linux (Bash - Run with sudo):**
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install-linux.sh | sudo bash
+            curl -fsSL https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/setup/install-linux.sh | sudo bash
             ```
 
             ### Manual Download
