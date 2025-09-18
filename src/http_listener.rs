@@ -56,9 +56,9 @@ pub(crate) trait HttpListener {
         let max_scan = data.len().min(4096);
         let data = &data[..max_scan];
 
-        twoway::find_bytes(data, b"GET ")
+        memchr::memmem::find(data, b"GET ")
             .map(|pos| &data[pos..])
-            .map(|r| match twoway::find_bytes(r, b"\r\n\r\n") {
+            .map(|r| match memchr::memmem::find(r, b"\r\n\r\n") {
                 Some(end) => &r[..end + 4],
                 None => &r[..r.len().min(1024)],
             })
