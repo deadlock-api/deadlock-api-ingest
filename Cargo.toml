@@ -26,3 +26,6 @@ opt-level = "z"
 lto = true
 codegen-units = 1
 panic = "abort"
+
+[dev-dependencies]
+rstest = "0.26.1"

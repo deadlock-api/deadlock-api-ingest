@@ -49,26 +49,36 @@ impl Salts {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
-    #[test]
-    fn test_extract_salts() {
-        let url = "http://replay404.valve.net/1422450/37959196_937530290.meta.bz2";
-        assert_eq!(
-            Salts::from_url(url).unwrap(),
-            Salts {
-                cluster_id: 404,
-                match_id: 37959196,
-                metadata_salt: 937530290,
-            }
-        );
-        let url = "http://replay400.valve.net/1422450/38090632_88648761.meta.bz2";
-        assert_eq!(
-            Salts::from_url(url).unwrap(),
-            Salts {
-                cluster_id: 400,
-                match_id: 38090632,
-                metadata_salt: 88648761,
-            }
-        );
+    #[rstest]
+    #[case(
+        "http://replay404.valve.net/1422450/37959196_937530290.meta.bz2",
+        404,
+        37959196,
+        937530290
+    )]
+    #[case(
+        "http://replay400.valve.net/1422450/38090632_88648761.meta.bz2",
+        400,
+        38090632,
+        88648761
+    )]
+    #[case(
+        "http://replay183.valve.net/1422450/42476710_428480166.meta.bz2",
+        183,
+        42476710,
+        428480166
+    )]
+    fn test_extract_salts(
+        #[case] url: &str,
+        #[case] cluster_id: u32,
+        #[case] match_id: u64,
+        #[case] metadata_salt: u32,
+    ) {
+        let salts = Salts::from_url(url).unwrap();
+        assert_eq!(salts.cluster_id, cluster_id);
+        assert_eq!(salts.match_id, match_id);
+        assert_eq!(salts.metadata_salt, metadata_salt);
     }
 }
