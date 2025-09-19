@@ -1,12 +1,18 @@
 # Deadlock API Ingest
 
-A network packet capture tool that monitors HTTP traffic for Deadlock game replay files and ingests metadata to the Deadlock API.
+A network packet capture tool that monitors HTTP traffic for Deadlock game replay files and ingests metadata to the
+Deadlock API.
 
 ## Quick Installation
 
-### Windows (PowerShell)
+### Windows (Batch File - Recommended)
 
-Run this command in an **elevated PowerShell** (Run as Administrator):
+**Easiest method:** Download and double-click on the **[
+`install.bat`](https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install.bat)** file.
+
+### Windows (PowerShell - Advanced)
+
+If you prefer PowerShell, run this command in an **elevated PowerShell** (Run as Administrator):
 
 ```powershell
 irm https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install-windows.ps1 | iex
@@ -35,11 +41,13 @@ chmod +x install-linux.sh
 sudo ./install-linux.sh
 ```
 
-> **Note**: The installation scripts automatically download the latest release binaries from GitHub and set up the application as a system service.
+> **Note**: The installation scripts automatically download the latest release binaries from GitHub and set up the
+> application as a system service.
 
 ## Uninstallation
 
 ### Windows
+
 ```powershell
 # Stop and remove scheduled tasks (main + updater)
 Stop-ScheduledTask -TaskName "deadlock-api-ingest" -ErrorAction SilentlyContinue
@@ -57,6 +65,7 @@ Remove-Item "$env:ProgramData\deadlock-api-ingest" -Recurse -Force -ErrorAction 
 ```
 
 ### Linux
+
 ```bash
 # Stop and disable main service
 sudo systemctl stop deadlock-api-ingest || true
@@ -92,22 +101,25 @@ This project uses automated releases that are created on every push to the maste
 1. **Builds cross-platform binaries** for Windows and Linux
 2. **Generates semantic versions** based on commit count and SHA
 3. **Creates GitHub releases** with properly named assets:
-   - `deadlock-api-ingest-windows-latest.exe` - Windows executable
-   - `deadlock-api-ingest-ubuntu-latest` - Linux executable
+    - `deadlock-api-ingest-windows-latest.exe` - Windows executable
+    - `deadlock-api-ingest-ubuntu-latest` - Linux executable
 4. **Provides installation instructions** in each release
 
 The installation scripts automatically fetch the latest release, so you always get the most up-to-date version.
 
 ## Manual Installation
 
-If you prefer to install manually, you can download the appropriate binary from the [releases page](https://github.com/deadlock-api/deadlock-api-ingest/releases) and set it up as a service yourself.
+If you prefer to install manually, you can download the appropriate binary from
+the [releases page](https://github.com/deadlock-api/deadlock-api-ingest/releases) and set it up as a service yourself.
 
 ### Windows Manual Setup
+
 1. Download `deadlock-api-ingest-windows-latest.exe`
 2. Place it in `C:\Program Files\deadlock-api-ingest\`
 3. Create a Windows service using `sc.exe` or install as a startup program
 
 ### Linux Manual Setup
+
 1. Download `deadlock-api-ingest-ubuntu-latest`
 2. Place it in `/opt/deadlock-api-ingest/` or `/usr/local/bin/`
 3. Make it executable: `chmod +x deadlock-api-ingest`
@@ -130,4 +142,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-If you encounter any issues, please open an issue on the [GitHub repository](https://github.com/deadlock-api/deadlock-api-ingest/issues)
+If you encounter any issues, please open an issue on
+the [GitHub repository](https://github.com/deadlock-api/deadlock-api-ingest/issues)
