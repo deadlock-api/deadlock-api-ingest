@@ -184,13 +184,13 @@ jobs:
             **Windows (PowerShell - Run as Administrator):**
             Open a Powershell window as an administrator and run the following command:
             ```powershell
-            irm https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install-windows.ps1 | iex
+            irm https://github.com/deadlock-api/deadlock-api-ingest/releases/download/${{ needs.build.outputs.version }}/install-windows.ps1 | iex
             ```
 
             **Linux (Bash - Run with sudo):**
             Open a terminal and run the following command:
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install-linux.sh | sudo bash
+            curl -fsSL https://github.com/deadlock-api/deadlock-api-ingest/releases/download/${{ needs.build.outputs.version }}/install-linux.sh | sudo bash
             ```
 
             ### Changes
