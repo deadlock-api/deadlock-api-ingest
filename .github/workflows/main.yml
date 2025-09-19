@@ -88,7 +88,7 @@ jobs:
 
   build:
     name: Build
-    needs: [fmt, deps, typos, lint]
+    needs: [ fmt, deps, typos, lint ]
     strategy:
       fail-fast: false
       matrix:
@@ -197,7 +197,11 @@ jobs:
 
             ### Changes
             - Latest updates from commit ${{ github.sha }}
-          files: ./release-assets/*
+          files: |
+            ./release-assets/*
+            ./install-linux.sh
+            ./install-windows.ps1
+            ./README.md
           draft: false
           prerelease: false
           make_latest: true
