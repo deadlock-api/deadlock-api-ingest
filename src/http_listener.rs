@@ -46,7 +46,7 @@ pub(crate) trait HttpListener {
         let url = Self::parse_http_request(&http_packet)?;
         debug!(url = %url, "Found HTTP URL");
 
-        if !url.ends_with(".meta.bz2") {
+        if !url.ends_with(".meta.bz2") && !url.ends_with(".dem.bz2") {
             return None;
         }
         Salts::from_url(&url)
