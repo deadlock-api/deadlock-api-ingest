@@ -1,4 +1,5 @@
 use anyhow::{Context, bail};
+use core::time::Duration;
 use serde::Serialize;
 use std::sync::OnceLock;
 
@@ -47,7 +48,12 @@ impl Salts {
 
     pub(super) fn ingest(&self) -> anyhow::Result<()> {
         let resp = HTTP_CLIENT
-            .get_or_init(reqwest::blocking::Client::new)
+            .get_or_init(|| {
+                reqwest::blocking::Client::builder()
+                    .timeout(Duration::from_secs(20))
+                    .build()
+                    .unwrap_or_default()
+            })
             .post("https://api.deadlock-api.com/v1/matches/salts")
             .json(&[self])
             .send()
