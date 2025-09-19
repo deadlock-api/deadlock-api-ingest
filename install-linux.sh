@@ -135,6 +135,14 @@ install_dependencies() {
         return
     fi
 
+    # Symlink libpcap.so to libpcap.so.0.8 if it exists but the latter does not
+    if [[ -f /usr/lib/libpcap.so && ! -f /usr/lib/libpcap.so.0.8 ]]; then
+        ln -s /usr/lib/libpcap.so /usr/lib/libpcap.so.0.8
+    fi
+    if [[ -f /usr/lib64/libpcap.so && ! -f /usr/lib64/libpcap.so.0.8 ]]; then
+        ln -s /usr/lib64/libpcap.so /usr/lib64/libpcap.so.0.8
+    fi
+
     log "SUCCESS" "Dependencies installed successfully."
 }
 
@@ -421,8 +429,6 @@ store_version_info() {
 
 # Function to prompt user for automatic updater setup
 prompt_for_updater() {
-    local install_updater="true"
-
     # Check if we're running in an interactive terminal
     if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then
         log "INFO" "Non-interactive mode detected. Installing automatic updater by default."
@@ -469,8 +475,6 @@ prompt_for_updater() {
 
 # --- Main Installation Logic ---
 main() {
-    >"$LOG_FILE"
-
     log "INFO" "Starting Deadlock API Ingest installation..."
     log "INFO" "Log file is available at: $LOG_FILE"
 
