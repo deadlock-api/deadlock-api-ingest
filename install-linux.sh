@@ -115,6 +115,14 @@ install_dependencies() {
         dpkg-query -W -f='${Status}' "$libpcap_pkg" 2>/dev/null | grep -q "install ok installed" || pkgs_to_install+=("$libpcap_pkg")
     fi
 
+    # Symlink libpcap.so to libpcap.so.0.8 if it exists but the latter does not
+    if [[ -f /usr/lib/libpcap.so && ! -f /usr/lib/libpcap.so.0.8 ]]; then
+        ln -s /usr/lib/libpcap.so /usr/lib/libpcap.so.0.8
+    fi
+    if [[ -f /usr/lib64/libpcap.so && ! -f /usr/lib64/libpcap.so.0.8 ]]; then
+        ln -s /usr/lib64/libpcap.so /usr/lib64/libpcap.so.0.8
+    fi
+
     if [[ ${#pkgs_to_install[@]} -eq 0 ]]; then
         log "SUCCESS" "All dependencies are already installed."
         return
@@ -133,14 +141,6 @@ install_dependencies() {
     else
         log "WARN" "Could not detect package manager. Please install missing packages manually: ${pkgs_to_install[*]}"
         return
-    fi
-
-    # Symlink libpcap.so to libpcap.so.0.8 if it exists but the latter does not
-    if [[ -f /usr/lib/libpcap.so && ! -f /usr/lib/libpcap.so.0.8 ]]; then
-        ln -s /usr/lib/libpcap.so /usr/lib/libpcap.so.0.8
-    fi
-    if [[ -f /usr/lib64/libpcap.so && ! -f /usr/lib64/libpcap.so.0.8 ]]; then
-        ln -s /usr/lib64/libpcap.so /usr/lib64/libpcap.so.0.8
     fi
 
     log "SUCCESS" "Dependencies installed successfully."
