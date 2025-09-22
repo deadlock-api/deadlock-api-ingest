@@ -18,7 +18,7 @@ impl Salts {
         // Expect URLs like: http://replay404.valve.net/1422450/37959196_937530290.meta.bz2 or http://replay183.valve.net/1422450/42476710_428480166.dem.bz2
         // Strip query parameters if present
         let base_url = url.split_once('?').map_or(url, |(path, _)| path);
-        
+
         let (cluster_str, remaining) = base_url
             .strip_prefix("http://replay")?
             .split_once(".valve.net/")?;
