@@ -46,7 +46,9 @@ pub(crate) trait HttpListener {
         let url = Self::parse_http_request(&http_packet)?;
         debug!(url = %url, "Found HTTP URL");
 
-        if !url.ends_with(".meta.bz2") && !url.ends_with(".dem.bz2") {
+        // Strip query parameters before checking file extension
+        let base_url = url.split_once('?').map_or(url.as_str(), |(path, _)| path);
+        if !base_url.ends_with(".meta.bz2") && !base_url.ends_with(".dem.bz2") {
             return None;
         }
         Salts::from_url(&url)
@@ -202,5 +204,26 @@ mod tests {
             b"\x00\x01randomdataGET /path HTTP/1.1\r\nHost: example.com\r\n\r\nmore".to_vec();
         let found = <DummyListener as HttpListener>::find_http_in_packet(&payload).unwrap();
         assert!(found.contains("GET /path HTTP/1.1"));
+    }
+
+    #[test]
+    fn test_extract_salts_with_query_params() {
+        // Test URL without query params - should work
+        let http_data_without_query = "GET /1422450/37959196_937530290.meta.bz2 HTTP/1.1\r\nHost: replay404.valve.net\r\n\r\n";
+        let packet_without_query = format!("randomdata{http_data_without_query}").into_bytes();
+        let salts = <DummyListener as HttpListener>::extract_salts(&packet_without_query);
+        assert!(
+            salts.is_some(),
+            "Should extract salts from URL without query params"
+        );
+
+        // Test URL with query params - currently fails but should work after fix
+        let http_data_with_query = "GET /1422450/37959196_937530290.meta.bz2?v=2 HTTP/1.1\r\nHost: replay404.valve.net\r\n\r\n";
+        let packet_with_query = format!("randomdata{http_data_with_query}").into_bytes();
+        let salts_with_query = <DummyListener as HttpListener>::extract_salts(&packet_with_query);
+        assert!(
+            salts_with_query.is_some(),
+            "Should extract salts from URL with query params"
+        );
     }
 }
