@@ -212,12 +212,18 @@ mod tests {
         let http_data_without_query = "GET /1422450/37959196_937530290.meta.bz2 HTTP/1.1\r\nHost: replay404.valve.net\r\n\r\n";
         let packet_without_query = format!("randomdata{http_data_without_query}").into_bytes();
         let salts = <DummyListener as HttpListener>::extract_salts(&packet_without_query);
-        assert!(salts.is_some(), "Should extract salts from URL without query params");
-        
+        assert!(
+            salts.is_some(),
+            "Should extract salts from URL without query params"
+        );
+
         // Test URL with query params - currently fails but should work after fix
         let http_data_with_query = "GET /1422450/37959196_937530290.meta.bz2?v=2 HTTP/1.1\r\nHost: replay404.valve.net\r\n\r\n";
         let packet_with_query = format!("randomdata{http_data_with_query}").into_bytes();
         let salts_with_query = <DummyListener as HttpListener>::extract_salts(&packet_with_query);
-        assert!(salts_with_query.is_some(), "Should extract salts from URL with query params");
+        assert!(
+            salts_with_query.is_some(),
+            "Should extract salts from URL with query params"
+        );
     }
 }
