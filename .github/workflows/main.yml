@@ -84,6 +84,7 @@ jobs:
 
   test:
     name: Test
+    needs: [ fmt, deps, typos, lint ]
     strategy:
       fail-fast: false
       matrix:
@@ -114,7 +115,7 @@ jobs:
 
   build:
     name: Build
-    needs: [ fmt, deps, typos, lint, test ]
+    needs: [ test ]
     strategy:
       fail-fast: false
       matrix:
