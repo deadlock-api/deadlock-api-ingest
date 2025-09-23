@@ -37,6 +37,110 @@ sudo ./install-linux.sh
 
 > **Note**: The installation scripts automatically download the latest release binaries from GitHub and set up the application as a system service.
 
+## Docker Usage
+
+The easiest way to run deadlock-api-ingest is using Docker. The application is available as a pre-built Docker image.
+
+### Requirements
+
+**Important**: This application requires special network capabilities to capture packets:
+- `--network host` or equivalent network access to monitor traffic
+- `--cap-add NET_RAW --cap-add NET_ADMIN` for packet capture capabilities
+- Or `--privileged` for full access (less secure but simpler)
+
+### Quick Start
+
+Run the latest version with a simple command:
+
+```bash
+docker run -d --name deadlock-api-ingest \
+  --restart unless-stopped \
+  --network host \
+  --cap-add NET_RAW \
+  --cap-add NET_ADMIN \
+  ghcr.io/deadlock-api/deadlock-api-ingest:latest
+```
+
+### Docker Compose
+
+For easier management, use this `docker-compose.yml`:
+
+```yaml
+version: '3.8'
+
+services:
+  deadlock-api-ingest:
+    image: ghcr.io/deadlock-api/deadlock-api-ingest:latest
+    container_name: deadlock-api-ingest
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    environment:
+      - RUST_LOG=info
+    # Optional: mount a volume for persistent data/logs
+    # volumes:
+    #   - ./data:/app/data
+
+  # Optional: Watchtower for automatic updates
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=3600  # Check every hour
+      - WATCHTOWER_INCLUDE_STOPPED=true
+    command: deadlock-api-ingest
+```
+
+Start with: `docker-compose up -d`
+
+### Environment Variables
+
+- `RUST_LOG`: Set logging level (default: `info`, options: `error`, `warn`, `info`, `debug`, `trace`)
+- `RUST_BACKTRACE`: Enable backtraces on panic (set to `1` or `full`)
+
+### Viewing Logs
+
+```bash
+# View logs
+docker logs deadlock-api-ingest
+
+# Follow logs in real-time
+docker logs -f deadlock-api-ingest
+
+# View last 100 lines
+docker logs --tail 100 deadlock-api-ingest
+```
+
+### Updating
+
+```bash
+# Pull latest image
+docker pull ghcr.io/deadlock-api/deadlock-api-ingest:latest
+
+# Restart container with new image
+docker-compose down && docker-compose up -d
+
+# Or manually
+docker stop deadlock-api-ingest
+docker rm deadlock-api-ingest
+# Run the docker run command again
+```
+
+### Troubleshooting
+
+If the container fails to start:
+
+1. **Check permissions**: Ensure Docker has the necessary capabilities
+2. **Network access**: Verify `--network host` is used
+3. **Logs**: Check container logs for specific error messages
+4. **Host networking**: Some systems may require additional network configuration
+
 ### NixOS
 
 You can add it as a flake and add systemd service files so it will run on boot, or simply run the binary whenever you need it

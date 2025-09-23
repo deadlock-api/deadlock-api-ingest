@@ -1,0 +1,37 @@
+services:
+  deadlock-api-ingest:
+    image: ghcr.io/deadlock-api/deadlock-api-ingest:latest
+    container_name: deadlock-api-ingest
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    environment:
+      - RUST_LOG=info
+      - RUST_BACKTRACE=1
+    # Optional: mount a volume for persistent data/logs
+    # volumes:
+    #   - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "deadlock-api-ingest"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Watchtower for automatic updates
+  # Uncomment the section below to enable automatic container updates
+  # watchtower:
+  #   image: containrrr/watchtower:latest
+  #   container_name: watchtower
+  #   restart: unless-stopped
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   environment:
+  #     - WATCHTOWER_CLEANUP=true
+  #     - WATCHTOWER_POLL_INTERVAL=3600  # Check every hour
+  #     - WATCHTOWER_INCLUDE_STOPPED=true
+  #     - WATCHTOWER_REVIVE_STOPPED=false
+  #     - WATCHTOWER_NOTIFICATIONS=shoutrrr://logger://
+  #   command: deadlock-api-ingest

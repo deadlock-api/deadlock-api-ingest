@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+LICENSE
+
+# Build artifacts
+target/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# CI/CD
+.github/
+
+# Installation scripts (not needed in container)
+install-linux.sh
+install-windows.ps1
+update-checker.sh
+update-checker.ps1
+
+# Docker files
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Logs
+*.log
