@@ -26,13 +26,12 @@ pub(crate) trait HttpListener {
                 continue;
             };
 
-            // Careful! This assumes, that either replay salt or metadata salt is set but not both.
-            if salts.metadata_salt.is_some() && ingested_metadata.contains(&salts.match_id) {
-                debug!(salts = ?salts, "Already ingested metadata");
-                continue;
-            }
-            if salts.replay_salt.is_some() && ingested_replay.contains(&salts.match_id) {
-                debug!(salts = ?salts, "Already ingested replay");
+            let is_new_metadata =
+                salts.metadata_salt.is_some() && !ingested_metadata.contains(&salts.match_id);
+            let is_new_replay =
+                salts.replay_salt.is_some() && !ingested_replay.contains(&salts.match_id);
+            if  !is_new_metadata && !is_new_replay {
+                debug!(salts = ?salts, "Already ingested");
                 continue;
             }
 
