@@ -9,8 +9,8 @@ static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
 pub(super) struct Salts {
     pub(super) match_id: u64,
     cluster_id: u32,
-    metadata_salt: Option<u32>,
-    replay_salt: Option<u32>,
+    pub(super) metadata_salt: Option<u32>,
+    pub(super) replay_salt: Option<u32>,
 }
 
 impl Salts {
