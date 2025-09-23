@@ -82,9 +82,39 @@ jobs:
       - name: Cargo Clippy (Deny Warnings)
         run: cargo clippy --all-targets --locked -- -D warnings
 
+  test:
+    name: Test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - platform: windows-latest
+            target: x86_64-pc-windows-gnu
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Build Tools
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcap-dev
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "build-cache-${{ runner.os }}-${{ runner.arch }}-stable"
+      - name: Update Rust toolchain to stable
+        run: |
+          rustup override set stable
+          rustup update stable
+          rustup target add ${{ matrix.target }}
+      - name: Run tests
+        run: cargo test --locked
+
   build:
     name: Build
-    needs: [ fmt, deps, typos, lint ]
+    needs: [ fmt, deps, typos, lint, test ]
     strategy:
       fail-fast: false
       matrix:
