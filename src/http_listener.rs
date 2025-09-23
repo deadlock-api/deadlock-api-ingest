@@ -30,7 +30,7 @@ pub(crate) trait HttpListener {
                 salts.metadata_salt.is_some() && !ingested_metadata.contains(&salts.match_id);
             let is_new_replay =
                 salts.replay_salt.is_some() && !ingested_replay.contains(&salts.match_id);
-            if  !is_new_metadata && !is_new_replay {
+            if !is_new_metadata && !is_new_replay {
                 debug!(salts = ?salts, "Already ingested");
                 continue;
             }
