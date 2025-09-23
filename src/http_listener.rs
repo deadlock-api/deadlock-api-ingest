@@ -13,7 +13,8 @@ pub(crate) trait HttpListener {
 
     /// Start listening and process payloads produced by `payloads()`.
     fn listen(&self) -> anyhow::Result<()> {
-        let mut ingested_matches = HashSet::new();
+        let mut ingested_metadata = HashSet::new();
+        let mut ingested_replay = HashSet::new();
         for payload in self.payloads()? {
             // If the payload is too short, it's not an HTTP request.
             if payload.len() < 60 {
@@ -24,18 +25,34 @@ pub(crate) trait HttpListener {
             let Some(salts) = Self::extract_salts(&payload) else {
                 continue;
             };
-            if ingested_matches.contains(&salts.match_id) {
-                debug!(salts = ?salts, "Already ingested match");
+
+            // Careful! This assumes, that either replay salt or metadata salt is set but not both.
+            if salts.metadata_salt.is_some() && ingested_metadata.contains(&salts.match_id) {
+                debug!(salts = ?salts, "Already ingested metadata");
+                continue;
+            }
+            if salts.replay_salt.is_some() && ingested_replay.contains(&salts.match_id) {
+                debug!(salts = ?salts, "Already ingested replay");
                 continue;
             }
 
             // Ingest the Salts
             salts.ingest()?;
-
             info!(salts = ?salts, "Ingested salts");
-            ingested_matches.insert(salts.match_id);
-            if ingested_matches.len() > 1_000 {
-                ingested_matches.clear(); // Clear the set if it's too large
+
+            if salts.metadata_salt.is_some() {
+                ingested_metadata.insert(salts.match_id);
+
+                if ingested_metadata.len() > 1_000 {
+                    ingested_metadata.clear(); // Clear the set if it's too large
+                }
+            }
+            if salts.replay_salt.is_some() {
+                ingested_replay.insert(salts.match_id);
+
+                if ingested_replay.len() > 1_000 {
+                    ingested_replay.clear(); // Clear the set if it's too large
+                }
             }
         }
         Ok(())
