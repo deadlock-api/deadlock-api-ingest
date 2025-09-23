@@ -39,6 +39,21 @@ pub(crate) trait HttpListener {
             salts.ingest()?;
             info!(salts = ?salts, "Ingested salts");
 
+            // Send Desktop Notification
+            #[cfg(target_os = "windows")]
+            {
+                use notify_rust::{Notification, Timeout};
+                let notification = Notification::new()
+                    .appname("Deadlock API Ingest")
+                    .summary("Deadlock API Ingest")
+                    .body(&format!("Ingested for match {}", salts.match_id))
+                    .timeout(Timeout::Milliseconds(4 * 1000))
+                    .show();
+                if let Err(e) = notification {
+                    warn!("Failed to send notification: {e}");
+                }
+            }
+
             if salts.metadata_salt.is_some() {
                 ingested_metadata.insert(salts.match_id);
 
