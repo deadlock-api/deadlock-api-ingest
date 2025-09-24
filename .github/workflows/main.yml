@@ -79,6 +79,7 @@ jobs:
           rustup override set stable
           rustup update stable
           rustup target add ${{ matrix.target }}
+          rustup component add clippy
       - name: Cargo Clippy (Deny Warnings)
         run: cargo clippy --all-targets --locked -- -D warnings
 
