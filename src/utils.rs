@@ -9,14 +9,17 @@ static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
 pub(super) struct Salts {
     pub(super) match_id: u64,
     cluster_id: u32,
-    metadata_salt: Option<u32>,
-    replay_salt: Option<u32>,
+    pub(super) metadata_salt: Option<u32>,
+    pub(super) replay_salt: Option<u32>,
 }
 
 impl Salts {
     pub(crate) fn from_url(url: &str) -> Option<Self> {
         // Expect URLs like: http://replay404.valve.net/1422450/37959196_937530290.meta.bz2 or http://replay183.valve.net/1422450/42476710_428480166.dem.bz2
-        let (cluster_str, remaining) = url
+        // Strip query parameters if present
+        let base_url = url.split_once('?').map_or(url, |(path, _)| path);
+
+        let (cluster_str, remaining) = base_url
             .strip_prefix("http://replay")?
             .split_once(".valve.net/")?;
         // remaining should be like "1422450/37959196_937530290.meta.bz2"
@@ -97,6 +100,20 @@ mod tests {
     )]
     #[case(
         "http://replay183.valve.net/1422450/42476710_428480166.dem.bz2",
+        183,
+        42476710,
+        None,
+        Some(428480166)
+    )]
+    #[case(
+        "http://replay404.valve.net/1422450/37959196_937530290.meta.bz2?v=2",
+        404,
+        37959196,
+        Some(937530290),
+        None
+    )]
+    #[case(
+        "http://replay183.valve.net/1422450/42476710_428480166.dem.bz2?v=2",
         183,
         42476710,
         None,

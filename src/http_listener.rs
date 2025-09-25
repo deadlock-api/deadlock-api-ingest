@@ -13,7 +13,8 @@ pub(crate) trait HttpListener {
 
     /// Start listening and process payloads produced by `payloads()`.
     fn listen(&self) -> anyhow::Result<()> {
-        let mut ingested_matches = HashSet::new();
+        let mut ingested_metadata = HashSet::new();
+        let mut ingested_replay = HashSet::new();
         for payload in self.payloads()? {
             // If the payload is too short, it's not an HTTP request.
             if payload.len() < 60 {
@@ -24,18 +25,33 @@ pub(crate) trait HttpListener {
             let Some(salts) = Self::extract_salts(&payload) else {
                 continue;
             };
-            if ingested_matches.contains(&salts.match_id) {
-                debug!(salts = ?salts, "Already ingested match");
+
+            let is_new_metadata =
+                salts.metadata_salt.is_some() && !ingested_metadata.contains(&salts.match_id);
+            let is_new_replay =
+                salts.replay_salt.is_some() && !ingested_replay.contains(&salts.match_id);
+            if !is_new_metadata && !is_new_replay {
+                debug!(salts = ?salts, "Already ingested");
                 continue;
             }
 
             // Ingest the Salts
             salts.ingest()?;
-
             info!(salts = ?salts, "Ingested salts");
-            ingested_matches.insert(salts.match_id);
-            if ingested_matches.len() > 1_000 {
-                ingested_matches.clear(); // Clear the set if it's too large
+
+            if salts.metadata_salt.is_some() {
+                ingested_metadata.insert(salts.match_id);
+
+                if ingested_metadata.len() > 1_000 {
+                    ingested_metadata.clear(); // Clear the set if it's too large
+                }
+            }
+            if salts.replay_salt.is_some() {
+                ingested_replay.insert(salts.match_id);
+
+                if ingested_replay.len() > 1_000 {
+                    ingested_replay.clear(); // Clear the set if it's too large
+                }
             }
         }
         Ok(())
@@ -46,7 +62,9 @@ pub(crate) trait HttpListener {
         let url = Self::parse_http_request(&http_packet)?;
         debug!(url = %url, "Found HTTP URL");
 
-        if !url.ends_with(".meta.bz2") && !url.ends_with(".dem.bz2") {
+        // Strip query parameters before checking file extension
+        let base_url = url.split_once('?').map_or(url.as_str(), |(path, _)| path);
+        if !base_url.ends_with(".meta.bz2") && !base_url.ends_with(".dem.bz2") {
             return None;
         }
         Salts::from_url(&url)
@@ -202,5 +220,26 @@ mod tests {
             b"\x00\x01randomdataGET /path HTTP/1.1\r\nHost: example.com\r\n\r\nmore".to_vec();
         let found = <DummyListener as HttpListener>::find_http_in_packet(&payload).unwrap();
         assert!(found.contains("GET /path HTTP/1.1"));
+    }
+
+    #[test]
+    fn test_extract_salts_with_query_params() {
+        // Test URL without query params - should work
+        let http_data_without_query = "GET /1422450/37959196_937530290.meta.bz2 HTTP/1.1\r\nHost: replay404.valve.net\r\n\r\n";
+        let packet_without_query = format!("randomdata{http_data_without_query}").into_bytes();
+        let salts = <DummyListener as HttpListener>::extract_salts(&packet_without_query);
+        assert!(
+            salts.is_some(),
+            "Should extract salts from URL without query params"
+        );
+
+        // Test URL with query params - currently fails but should work after fix
+        let http_data_with_query = "GET /1422450/37959196_937530290.meta.bz2?v=2 HTTP/1.1\r\nHost: replay404.valve.net\r\n\r\n";
+        let packet_with_query = format!("randomdata{http_data_with_query}").into_bytes();
+        let salts_with_query = <DummyListener as HttpListener>::extract_salts(&packet_with_query);
+        assert!(
+            salts_with_query.is_some(),
+            "Should extract salts from URL with query params"
+        );
     }
 }
