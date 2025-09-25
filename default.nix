@@ -2,16 +2,16 @@
 
 pkgs.rustPlatform.buildRustPackage rec {
   pname = "deadlock-api-ingest";
-  version = "0.1.102-fc2d778";
+  version = "0.1.116-8f2cd8f";
 
   src = pkgs.fetchFromGitHub {
     owner = "deadlock-api";
     repo = "deadlock-api-ingest";
     rev = "v${version}";
-    hash = "sha256-IXUUoWrXz/HZVkLZJ5vyMro9tboFW83q7zjUy4PLLrU=";
+    hash = "sha256-9h/+CsummSGA8GLfMJng/qRseZuQfrHzPCYNqRDt7C0=";
   };
 
-  cargoHash = "sha256-H61PDhu+zy641aKnxYT2cn9Cu2RHuWJQHaUz28nSAFk=";
+  cargoHash = "sha256-iHhPe1rdk/nq0wFnKiG41QzMTOoeq6v583TyzXwHO0Q=";
 
   doCheck = false; # compiles twice for a `cargo check`
 
@@ -31,4 +31,3 @@ pkgs.rustPlatform.buildRustPackage rec {
     mainProgram = "deadlock-api-ingest";
   };
 }
-
