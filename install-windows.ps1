@@ -491,6 +491,12 @@ if (-not $script:HasErrors) {
     Write-Host "Version file: $VersionFile" -ForegroundColor Cyan
     Write-Host "Update logs: $UpdateLogFile" -ForegroundColor Cyan
     Write-Host " "
+    # --- User-friendly usage explanation ---
+    Write-Host "How to use Deadlock API Ingest:" -ForegroundColor Green
+    Write-Host "1. Restart your game after installation." -ForegroundColor Cyan
+    Write-Host "2. Once in the game, go to your match history and click on 'matches'." -ForegroundColor Cyan
+    Write-Host "3. The tool will now work in the background to enhance your experience!" -ForegroundColor Cyan
+    Write-Host "If you have any questions, check the README or reach out for support.`n" -ForegroundColor Yellow
 } else {
     Write-Host " "
     Write-Host "========================================" -ForegroundColor Yellow

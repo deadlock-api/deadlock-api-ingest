@@ -571,6 +571,13 @@ main() {
         echo -e "Version file: ${YELLOW}$VERSION_FILE${NC}"
         echo
     } >&2
+
+    # --- User-friendly usage explanation ---
+    echo -e "${GREEN}How to use Deadlock API Ingest:${NC}" >&2
+    echo -e "${BLUE}1. Restart your game after installation.${NC}" >&2
+    echo -e "${BLUE}2. Once in the game, go to your match history and click on 'matches'.${NC}" >&2
+    echo -e "${BLUE}3. The tool will now work in the background to enhance your experience!${NC}" >&2
+    echo -e "${YELLOW}If you have any questions, check the README or reach out for support.${NC}\n" >&2
 }
 
 # Graceful error handling
