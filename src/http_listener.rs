@@ -9,7 +9,7 @@ use tracing::{debug, info, warn};
 pub(crate) trait HttpListener {
     /// Return an iterator of packet payloads (each as a Vec<u8>).
     /// Implementations may return an error if the capture cannot be set up.
-    fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item = Vec<u8>>>>;
+    fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item=Vec<u8>>>>;
 
     /// Start listening and process payloads produced by `payloads()`.
     fn listen(&self) -> anyhow::Result<()> {
@@ -124,7 +124,7 @@ pub(super) struct PlatformListener;
 
 #[cfg(target_os = "windows")]
 impl HttpListener for PlatformListener {
-    fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item = Vec<u8>>>> {
+    fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item=Vec<u8>>>> {
         let mut cap = pktmon::Capture::new()?;
 
         // Set filter to capture HTTP traffic (both outgoing and incoming on port 80)
@@ -156,7 +156,7 @@ impl HttpListener for PlatformListener {
 use anyhow::Context;
 #[cfg(target_os = "linux")]
 impl HttpListener for PlatformListener {
-    fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item = Vec<u8>>>> {
+    fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item=Vec<u8>>>> {
         let device = pcap::Device::lookup()?.context("Failed to find network device")?;
 
         info!(
@@ -167,9 +167,7 @@ impl HttpListener for PlatformListener {
 
         let mut cap = pcap::Capture::from_device(device)?
             .promisc(true)
-            .snaplen(65536) // Capture full packets
-            .timeout(100) // Shorter timeout for more responsive capture
-            .buffer_size(1_000_000) // Larger buffer
+            .timeout(1000)
             .open()?;
 
         // Set filter to capture HTTP traffic (both outgoing and incoming on port 80)
