@@ -1,7 +1,7 @@
 use anyhow::bail;
 use core::time::Duration;
-use reqwest::blocking::Response;
 use reqwest::StatusCode;
+use reqwest::blocking::Response;
 use serde::Serialize;
 use std::sync::OnceLock;
 use std::thread::sleep;
