@@ -16,7 +16,7 @@ memchr = "2.7.6"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 pktmon = "0.6.2"
-notify-rust = "4.11.7"
+winrt-toast-reborn = "0.3.8"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 pcap = "2.3.0"
