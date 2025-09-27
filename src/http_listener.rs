@@ -36,8 +36,13 @@ pub(crate) trait HttpListener {
             }
 
             // Ingest the Salts
-            salts.ingest()?;
-            info!(salts = ?salts, "Ingested salts");
+            match salts.ingest() {
+                Ok(..) => info!(salts = ?salts, "Ingested salts"),
+                Err(e) => {
+                    warn!(salts = ?salts, "Failed to ingest salts: {e}");
+                    continue;
+                }
+            }
 
             // Send Desktop Notification
             #[cfg(target_os = "windows")]
