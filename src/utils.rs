@@ -53,7 +53,7 @@ impl Salts {
     }
 
     pub(super) fn ingest(&self) -> anyhow::Result<()> {
-        let max_retries = 5;
+        let max_retries = 10;
         let mut attempt = 0;
         loop {
             attempt += 1;
@@ -72,7 +72,7 @@ impl Salts {
                 }
                 _ => {} // Retry on error
             }
-            sleep(Duration::from_secs(2));
+            sleep(Duration::from_secs(3));
         }
     }
 
