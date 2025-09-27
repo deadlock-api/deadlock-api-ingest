@@ -1,6 +1,7 @@
 use anyhow::bail;
 use core::time::Duration;
 use reqwest::blocking::Response;
+use reqwest::StatusCode;
 use serde::Serialize;
 use std::sync::OnceLock;
 use std::thread::sleep;
@@ -66,6 +67,9 @@ impl Salts {
                         resp.status(),
                         resp.text().unwrap_or_default()
                     );
+                }
+                Err(e) if e.status().is_some_and(|s| s == StatusCode::BAD_REQUEST) => {
+                    bail!("Failed to send salts to API: {e}");
                 }
                 Err(e) if attempt == max_retries => {
                     bail!("Failed to send salts to API: {e}");
