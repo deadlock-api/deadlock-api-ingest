@@ -1,7 +1,10 @@
-use anyhow::{Context, bail};
+use anyhow::bail;
 use core::time::Duration;
+use reqwest::blocking::Response;
 use serde::Serialize;
 use std::sync::OnceLock;
+use std::thread::sleep;
+use tracing::{debug, info};
 
 static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
 
@@ -50,7 +53,31 @@ impl Salts {
     }
 
     pub(super) fn ingest(&self) -> anyhow::Result<()> {
-        let resp = HTTP_CLIENT
+        let max_retries = 5;
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            debug!(salts = ?self, attempt, "Ingesting salts");
+            match self.send_ingest() {
+                Ok(resp) if resp.status().is_success() => return Ok(()),
+                Ok(resp) if attempt == max_retries => {
+                    bail!(
+                        "Ingest request failed: {} {}",
+                        resp.status(),
+                        resp.text().unwrap_or_default()
+                    );
+                }
+                Err(e) if attempt == max_retries => {
+                    bail!("Failed to send salts to API: {e}");
+                }
+                _ => {} // Retry on error
+            }
+            sleep(Duration::from_secs(2));
+        }
+    }
+
+    fn send_ingest(&self) -> reqwest::Result<Response> {
+        HTTP_CLIENT
             .get_or_init(|| {
                 reqwest::blocking::Client::builder()
                     .timeout(Duration::from_secs(20))
@@ -60,14 +87,6 @@ impl Salts {
             .post("https://api.deadlock-api.com/v1/matches/salts")
             .json(&[self])
             .send()
-            .context("Failed to send salts to API")?;
-
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().unwrap_or_default();
-            bail!("Ingest request failed: {status} {body}");
-        }
-        Ok(())
     }
 }
 
