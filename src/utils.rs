@@ -4,7 +4,7 @@ use reqwest::blocking::Response;
 use serde::Serialize;
 use std::sync::OnceLock;
 use std::thread::sleep;
-use tracing::{debug, info};
+use tracing::debug;
 
 static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
 
