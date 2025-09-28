@@ -44,23 +44,6 @@ pub(crate) trait HttpListener {
                 }
             }
 
-            // Send Desktop Notification
-            #[cfg(target_os = "windows")]
-            {
-                let id = winrt_toast_reborn::ToastManager::POWERSHELL_AUM_ID;
-                let manager = winrt_toast_reborn::ToastManager::new(id);
-
-                let mut toast = winrt_toast_reborn::Toast::new();
-                toast
-                    .text1("Deadlock API Ingest")
-                    .text2(format!("Ingested for match {}", salts.match_id))
-                    .duration(winrt_toast_reborn::ToastDuration::Short)
-                    .expires_in(core::time::Duration::from_secs(4));
-                if let Err(e) = manager.show(&toast) {
-                    warn!("Failed to send notification: {e}");
-                }
-            }
-
             if salts.metadata_salt.is_some() {
                 ingested_metadata.insert(salts.match_id);
 
