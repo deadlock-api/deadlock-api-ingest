@@ -117,10 +117,10 @@ install_dependencies() {
 
     # Symlink libpcap.so to libpcap.so.0.8 if it exists but the latter does not
     if [[ -f /usr/lib/libpcap.so && ! -f /usr/lib/libpcap.so.0.8 ]]; then
-        ln -s /usr/lib/libpcap.so /usr/lib/libpcap.so.0.8
+        ln -s /usr/lib/libpcap.so /usr/lib/libpcap.so.0.8 || true
     fi
     if [[ -f /usr/lib64/libpcap.so && ! -f /usr/lib64/libpcap.so.0.8 ]]; then
-        ln -s /usr/lib64/libpcap.so /usr/lib64/libpcap.so.0.8
+        ln -s /usr/lib64/libpcap.so /usr/lib64/libpcap.so.0.8 || true
     fi
 
     if [[ ${#pkgs_to_install[@]} -eq 0 ]]; then
