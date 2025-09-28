@@ -10,15 +10,42 @@ APP_NAME="deadlock-api-ingest"
 GITHUB_REPO="deadlock-api/deadlock-api-ingest"
 ASSET_KEYWORD="ubuntu-latest" # Keyword to find in the release asset filename
 
-# Installation paths
-INSTALL_DIR="/opt/$APP_NAME"
-BIN_DIR="/usr/local/bin"
+# --- User install detection ---
+USER_INSTALL=false
+for arg in "$@"; do
+    if [[ "$arg" == "--user" ]]; then
+        USER_INSTALL=true
+    fi
+    # Remove --user from args for sudo exec
+    [[ "$arg" == "--user" ]] || NEW_ARGS+=("$arg")
+    done
+
+# --- Detect read-only root ---
+if mount | grep 'on / ' | grep -q 'ro,'; then
+    log "WARN" "Root filesystem is read-only. Switching to user-mode install."
+    USER_INSTALL=true
+fi
+
+# --- Installation paths ---
+if [ "$USER_INSTALL" = true ]; then
+    INSTALL_DIR="$HOME/.config/$APP_NAME"
+    BIN_DIR="$HOME/.local/bin"
+    SYSTEMD_SERVICE_DIR="$HOME/.config/systemd/user"
+    SYSTEMCTL_CMD="systemctl --user"
+    SERVICE_NAME=$APP_NAME
+    SYSTEMD_SERVICE_FILE="$SYSTEMD_SERVICE_DIR/${SERVICE_NAME}.service"
+else
+    INSTALL_DIR="/opt/$APP_NAME"
+    BIN_DIR="/usr/local/bin"
+    SYSTEMD_SERVICE_DIR="/etc/systemd/system"
+    SYSTEMCTL_CMD="systemctl"
+    SERVICE_NAME=$APP_NAME
+    SYSTEMD_SERVICE_FILE="$SYSTEMD_SERVICE_DIR/${SERVICE_NAME}.service"
+fi
 FINAL_EXECUTABLE_NAME=$APP_NAME
 
 # Service and logging
-SERVICE_NAME=$APP_NAME
 LOG_FILE="/tmp/${APP_NAME}-install.log"
-SYSTEMD_SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 # Update functionality
 UPDATE_SERVICE_NAME="${APP_NAME}-updater"
@@ -86,13 +113,17 @@ execute_quietly() {
 
 # Function to check if running with root/sudo privileges
 check_privileges() {
+    if [ "$USER_INSTALL" = true ]; then
+        log "INFO" "User-mode install selected. No root privileges required."
+        return
+    fi
     if [[ $EUID -ne 0 ]]; then
         log "INFO" "This script requires root privileges. Attempting to restart with sudo..."
         if ! command -v sudo >/dev/null 2>&1; then
-            log "ERROR" "sudo is not available. Please run this script as root."
+            log "ERROR" "sudo is not available. Please run this script as root or use --user for user-mode install."
             exit 1
         fi
-        exec sudo -- "$0" "$@"
+        exec sudo -- "$0" "${NEW_ARGS[@]}"
     fi
     log "INFO" "Running with sufficient privileges."
 }
@@ -229,21 +260,21 @@ manage_service() {
 
     case "$action" in
         "remove")
-            if systemctl is-active --quiet "$SERVICE_NAME"; then
-                execute_quietly "Stopping existing service..." systemctl stop "$SERVICE_NAME"
+            if $SYSTEMCTL_CMD is-active --quiet "$SERVICE_NAME"; then
+                execute_quietly "Stopping existing service..." $SYSTEMCTL_CMD stop "$SERVICE_NAME"
             fi
-            if systemctl is-enabled --quiet "$SERVICE_NAME"; then
-                execute_quietly "Disabling existing service..." systemctl disable "$SERVICE_NAME"
+            if $SYSTEMCTL_CMD is-enabled --quiet "$SERVICE_NAME"; then
+                execute_quietly "Disabling existing service..." $SYSTEMCTL_CMD disable "$SERVICE_NAME"
             fi
             if [[ -f "$SYSTEMD_SERVICE_FILE" ]]; then
                 rm -f "$SYSTEMD_SERVICE_FILE"
             fi
-            systemctl daemon-reload 2>> "$LOG_FILE"
+            $SYSTEMCTL_CMD daemon-reload 2>> "$LOG_FILE"
             ;;
         "create")
             local executable_path="$2"
-
             log "INFO" "Creating system service..."
+            mkdir -p "$(dirname "$SYSTEMD_SERVICE_FILE")"
             cat > "$SYSTEMD_SERVICE_FILE" << EOF
 [Unit]
 Description=Deadlock API Ingest Service
@@ -253,8 +284,8 @@ Wants=network.target
 
 [Service]
 Type=simple
-User=root
-Group=root
+User=$(whoami)
+Group=$(whoami)
 ExecStart=$executable_path
 Restart=on-failure
 RestartSec=10
@@ -269,25 +300,23 @@ ProtectHome=true
 PrivateTmp=true
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 EOF
             chmod 644 "$SYSTEMD_SERVICE_FILE"
-            systemctl daemon-reload 2>> "$LOG_FILE"
+            $SYSTEMCTL_CMD daemon-reload 2>> "$LOG_FILE"
             log "SUCCESS" "System service created."
             ;;
         "start")
             log "INFO" "Starting application service..."
-            execute_quietly "Enabling service..." systemctl enable "$SERVICE_NAME"
-            execute_quietly "Starting service..." systemctl start "$SERVICE_NAME"
-
+            execute_quietly "Enabling service..." $SYSTEMCTL_CMD enable "$SERVICE_NAME"
+            execute_quietly "Starting service..." $SYSTEMCTL_CMD start "$SERVICE_NAME"
             sleep 3
-
-            if systemctl is-active --quiet "$SERVICE_NAME"; then
+            if $SYSTEMCTL_CMD is-active --quiet "$SERVICE_NAME"; then
                 log "SUCCESS" "Application service started successfully."
             else
                 log "ERROR" "Service failed to start. Please check the logs."
-                log "INFO" "To check status: systemctl status $SERVICE_NAME"
-                log "INFO" "To view logs: journalctl -u $SERVICE_NAME -n 50"
+                log "INFO" "To check status: $SYSTEMCTL_CMD status $SERVICE_NAME"
+                log "INFO" "To view logs: journalctl --user -u $SERVICE_NAME -n 50"
                 exit 1
             fi
             ;;
