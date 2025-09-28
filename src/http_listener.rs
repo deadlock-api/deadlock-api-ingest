@@ -76,8 +76,8 @@ pub(crate) trait HttpListener {
     }
 
     fn find_http_in_packet(data: &[u8]) -> Option<String> {
-        let max_scan = data.len().min(4096);
-        let data = &data[..max_scan];
+        let scan_len = data.len().min(4096);
+        let data = &data[..scan_len];
 
         memchr::memmem::find(data, b"GET ")
             .map(|pos| &data[pos..])
@@ -97,16 +97,16 @@ pub(crate) trait HttpListener {
         let mut lines = http_data.lines();
 
         let request_line = lines.next()?.trim();
-        let mut parts_iter = request_line.split_whitespace();
-        let _method = parts_iter.next()?;
+        let mut parts = request_line.split_whitespace();
+        let _method = parts.next()?;
 
-        let path = parts_iter.next()?.trim_start_matches('/');
+        let path = parts.next()?.trim_start_matches('/');
 
         if path.starts_with("http://") || path.starts_with("https://") {
             return Some(path.to_owned());
         }
 
-        let proto = parts_iter.next()?;
+        let proto = parts.next()?;
         if !proto.starts_with("HTTP/") {
             return None;
         }
