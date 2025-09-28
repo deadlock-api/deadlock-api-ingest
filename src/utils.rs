@@ -1,13 +1,12 @@
 use anyhow::bail;
 use core::time::Duration;
-use reqwest::StatusCode;
-use reqwest::blocking::Response;
 use serde::Serialize;
 use std::sync::OnceLock;
 use std::thread::sleep;
 use tracing::debug;
+use ureq::Error::StatusCode;
 
-static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+static HTTP_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Hash)]
 pub(super) struct Salts {
@@ -59,38 +58,22 @@ impl Salts {
         loop {
             attempt += 1;
             debug!(salts = ?self, attempt, "Ingesting salts");
-            match self.send_ingest() {
-                Ok(resp) if resp.status().is_success() => return Ok(()),
-                Ok(resp) if attempt == max_retries => {
-                    bail!(
-                        "Ingest request failed: {} {}",
-                        resp.status(),
-                        resp.text().unwrap_or_default()
-                    );
+            let response = HTTP_CLIENT
+                .get_or_init(ureq::Agent::new_with_defaults)
+                .post("https://api.deadlock-api.com/v1/matches/salts")
+                .send_json([self]);
+            match response {
+                Ok(r) if r.status().is_success() => return Ok(()),
+                Ok(mut resp) if attempt == max_retries => {
+                    let text = resp.body_mut().read_to_string().unwrap_or_default();
+                    bail!("Ingest request failed: {} {text}", resp.status());
                 }
-                Err(e) if e.status().is_some_and(|s| s == StatusCode::BAD_REQUEST) => {
+                Err(e) if attempt == max_retries || matches!(e, StatusCode(s) if s == 400) => {
                     bail!("Failed to send salts to API: {e}");
                 }
-                Err(e) if attempt == max_retries => {
-                    bail!("Failed to send salts to API: {e}");
-                }
-                _ => {} // Retry on error
+                _ => sleep(Duration::from_secs(3)), // Retry on error
             }
-            sleep(Duration::from_secs(3));
         }
-    }
-
-    fn send_ingest(&self) -> reqwest::Result<Response> {
-        HTTP_CLIENT
-            .get_or_init(|| {
-                reqwest::blocking::Client::builder()
-                    .timeout(Duration::from_secs(20))
-                    .build()
-                    .unwrap_or_default()
-            })
-            .post("https://api.deadlock-api.com/v1/matches/salts")
-            .json(&[self])
-            .send()
     }
 }
 
