@@ -68,11 +68,7 @@ log() {
 
 # Function to execute commands quietly while logging details
 execute_quietly() {
-    local description="$1"
-    shift
     local cmd=("$@")
-
-    log "INFO" "$description"
 
     # Execute command and capture both stdout and stderr to log file
     if "${cmd[@]}" >> "$LOG_FILE" 2>&1; then
@@ -94,13 +90,10 @@ check_privileges() {
         fi
         exec sudo -- "$0" "$@"
     fi
-    log "INFO" "Running with sufficient privileges."
 }
 
 # Function to install required dependencies
 install_dependencies() {
-    log "INFO" "Checking required dependencies..."
-
     local pkgs_to_install=()
     for pkg in curl wget jq; do
         command -v "$pkg" >/dev/null 2>&1 || pkgs_to_install+=("$pkg")
@@ -130,16 +123,16 @@ install_dependencies() {
 
     log "INFO" "Installing dependencies: ${pkgs_to_install[*]}"
     if command -v apt-get >/dev/null 2>&1; then
-        execute_quietly "Updating package lists..." apt-get update -qq
-        execute_quietly "Installing packages..." apt-get install -y "${pkgs_to_install[@]}"
+        execute_quietly apt-get update -qq
+        execute_quietly apt-get install -y "${pkgs_to_install[@]}"
     elif command -v dnf >/dev/null 2>&1; then
-        execute_quietly "Installing packages..." dnf install -y "${pkgs_to_install[@]}"
+        execute_quietly dnf install -y "${pkgs_to_install[@]}"
     elif command -v yum >/dev/null 2>&1; then
-        execute_quietly "Installing packages..." yum install -y "${pkgs_to_install[@]}"
+        execute_quietly yum install -y "${pkgs_to_install[@]}"
     elif command -v pacman >/dev/null 2>&1; then
-        execute_quietly "Installing packages..." pacman -Sy --noconfirm "${pkgs_to_install[@]}"
+        execute_quietly pacman -Sy --noconfirm "${pkgs_to_install[@]}"
     elif command -v apk >/dev/null 2>&1; then
-        execute_quietly "Installing packages..." apk add --no-cache "${pkgs_to_install[@]}"
+        execute_quietly apk add --no-cache "${pkgs_to_install[@]}"
     else
         log "WARN" "Could not detect package manager. Please install missing packages manually: ${pkgs_to_install[*]}"
         return
@@ -150,7 +143,6 @@ install_dependencies() {
 
 # Function to get latest release info from GitHub API
 get_latest_release() {
-    log "INFO" "Fetching latest release from repository: $GITHUB_REPO"
     local api_url="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
 
     local response
@@ -185,7 +177,6 @@ download_file() {
     local output_path="$2"
     local expected_size="$3"
 
-    log "INFO" "Downloading application binary..."
     mkdir -p "$(dirname "$output_path")"
 
     # Log detailed info to file, show simple progress to user
@@ -206,14 +197,10 @@ download_file() {
         log "ERROR" "File size mismatch! Expected: $expected_size bytes, Got: $actual_size bytes."
         exit 1
     fi
-
-    log "SUCCESS" "File integrity verified."
 }
 
 # Function to download the update checker script
 download_update_checker() {
-    log "INFO" "Downloading update checker script..."
-
     local update_script_url="https://raw.githubusercontent.com/$GITHUB_REPO/master/update-checker.sh"
 
     if ! wget --quiet --user-agent="Bash-Installer" -O "$UPDATE_SCRIPT_PATH" "$update_script_url" 2>> "$LOG_FILE"; then
@@ -232,10 +219,10 @@ manage_service() {
     case "$action" in
         "remove")
             if systemctl is-active --quiet "$SERVICE_NAME"; then
-                execute_quietly "Stopping existing service..." systemctl stop "$SERVICE_NAME"
+                execute_quietly systemctl stop "$SERVICE_NAME"
             fi
             if systemctl is-enabled --quiet "$SERVICE_NAME"; then
-                execute_quietly "Disabling existing service..." systemctl disable "$SERVICE_NAME"
+                execute_quietly systemctl disable "$SERVICE_NAME"
             fi
             if [[ -f "$SYSTEMD_SERVICE_FILE" ]]; then
                 rm -f "$SYSTEMD_SERVICE_FILE"
@@ -245,7 +232,6 @@ manage_service() {
         "create")
             local executable_path="$2"
 
-            log "INFO" "Creating system service..."
             cat > "$SYSTEMD_SERVICE_FILE" << EOF
 [Unit]
 Description=Deadlock API Ingest Service
@@ -278,9 +264,8 @@ EOF
             log "SUCCESS" "System service created."
             ;;
         "start")
-            log "INFO" "Starting application service..."
-            execute_quietly "Enabling service..." systemctl enable "$SERVICE_NAME"
-            execute_quietly "Starting service..." systemctl start "$SERVICE_NAME"
+            execute_quietly systemctl enable "$SERVICE_NAME"
+            execute_quietly systemctl start "$SERVICE_NAME"
 
             sleep 3
 
@@ -304,18 +289,18 @@ manage_update_service() {
         "remove")
             # Stop and disable timer
             if systemctl is-active --quiet "$UPDATE_TIMER_NAME.timer"; then
-                execute_quietly "Stopping existing update timer..." systemctl stop "$UPDATE_TIMER_NAME.timer"
+                execute_quietly systemctl stop "$UPDATE_TIMER_NAME.timer"
             fi
             if systemctl is-enabled --quiet "$UPDATE_TIMER_NAME.timer"; then
-                execute_quietly "Disabling existing update timer..." systemctl disable "$UPDATE_TIMER_NAME.timer"
+                execute_quietly systemctl disable "$UPDATE_TIMER_NAME.timer"
             fi
 
             # Stop and disable service
             if systemctl is-active --quiet "$UPDATE_SERVICE_NAME.service"; then
-                execute_quietly "Stopping existing update service..." systemctl stop "$UPDATE_SERVICE_NAME.service"
+                execute_quietly systemctl stop "$UPDATE_SERVICE_NAME.service"
             fi
             if systemctl is-enabled --quiet "$UPDATE_SERVICE_NAME.service"; then
-                execute_quietly "Disabling existing update service..." systemctl disable "$UPDATE_SERVICE_NAME.service"
+                execute_quietly systemctl disable "$UPDATE_SERVICE_NAME.service"
             fi
 
             # Remove files
@@ -329,8 +314,6 @@ manage_update_service() {
             systemctl daemon-reload 2>> "$LOG_FILE"
             ;;
         "create")
-            log "INFO" "Creating automatic update service..."
-
             # Create the update service file
             cat > "$UPDATE_SYSTEMD_SERVICE_FILE" << EOF
 [Unit]
@@ -376,9 +359,8 @@ EOF
             log "SUCCESS" "Automatic update service created."
             ;;
         "start")
-            log "INFO" "Starting automatic update timer..."
-            execute_quietly "Enabling update timer..." systemctl enable "$UPDATE_TIMER_NAME.timer"
-            execute_quietly "Starting update timer..." systemctl start "$UPDATE_TIMER_NAME.timer"
+            execute_quietly systemctl enable "$UPDATE_TIMER_NAME.timer"
+            execute_quietly systemctl start "$UPDATE_TIMER_NAME.timer"
 
             if systemctl is-active --quiet "$UPDATE_TIMER_NAME.timer"; then
                 log "SUCCESS" "Automatic updates enabled."
@@ -395,8 +377,6 @@ EOF
 
 # Function to create configuration file
 create_config_file() {
-    log "INFO" "Creating configuration file..."
-
     cat > "$CONFIG_FILE" << EOF
 # Deadlock API Ingest Configuration
 # This file controls various settings for the application and updater
@@ -451,11 +431,9 @@ prompt_for_updater() {
         if read -t 10 -r response; then
             case "${response,,}" in
                 y|yes)
-                    log "INFO" "User chose to install automatic updater."
                     return 0
                     ;;
                 n|no)
-                    log "INFO" "User chose to skip automatic updater installation."
                     return 1
                     ;;
                 *)
@@ -497,7 +475,6 @@ main() {
     manage_service "remove"
     manage_update_service "remove"
 
-    log "INFO" "Preparing installation environment..."
     killall "$APP_NAME" 2>/dev/null || true
 
     mkdir -p "$INSTALL_DIR"
@@ -507,7 +484,6 @@ main() {
     download_file "$download_url" "$temp_download_path" "$size"
 
     local final_executable_path="$INSTALL_DIR/$FINAL_EXECUTABLE_NAME"
-    log "INFO" "Installing application..."
     mv "$temp_download_path" "$final_executable_path"
     chmod +x "$final_executable_path"
 
@@ -573,13 +549,6 @@ main() {
         echo -e "Version file: ${YELLOW}$VERSION_FILE${NC}"
         echo
     } >&2
-
-    # --- User-friendly usage explanation ---
-    echo -e "${GREEN}How to use Deadlock API Ingest:${NC}" >&2
-    echo -e "${BLUE}1. Restart your game after installation.${NC}" >&2
-    echo -e "${BLUE}2. Once in the game, go to your match history and click on 'matches'.${NC}" >&2
-    echo -e "${BLUE}3. The tool will now work in the background to enhance your experience!${NC}" >&2
-    echo -e "${YELLOW}If you have any questions, check the README or reach out for support.${NC}\n" >&2
 }
 
 # Graceful error handling
