@@ -138,6 +138,8 @@ install_dependencies() {
         execute_quietly "Installing packages..." yum install -y "${pkgs_to_install[@]}"
     elif command -v pacman >/dev/null 2>&1; then
         execute_quietly "Installing packages..." pacman -Sy --noconfirm "${pkgs_to_install[@]}"
+    elif command -v apk >/dev/null 2>&1; then
+        execute_quietly "Installing packages..." apk add --no-cache "${pkgs_to_install[@]}"
     else
         log "WARN" "Could not detect package manager. Please install missing packages manually: ${pkgs_to_install[*]}"
         return
