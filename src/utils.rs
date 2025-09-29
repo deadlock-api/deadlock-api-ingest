@@ -53,6 +53,10 @@ impl Salts {
     }
 
     pub(super) fn ingest(&self) -> anyhow::Result<()> {
+        if self.match_id > 100000000 {
+            bail!("Match ID is too large: {}", self.match_id);
+        }
+
         let max_retries = 10;
         let mut attempt = 0;
         loop {
