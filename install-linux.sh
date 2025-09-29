@@ -133,6 +133,10 @@ install_dependencies() {
         execute_quietly pacman -Sy --noconfirm "${pkgs_to_install[@]}"
     elif command -v apk >/dev/null 2>&1; then
         execute_quietly apk add --no-cache "${pkgs_to_install[@]}"
+    elif command -v zypper >/dev/null 2>&1; then
+        execute_quietly zypper install -y "${pkgs_to_install[@]}"
+    elif command -v emerge >/dev/null 2>&1; then
+        execute_quietly emerge -v "${pkgs_to_install[@]}"
     else
         log "WARN" "Could not detect package manager. Please install missing packages manually: ${pkgs_to_install[*]}"
         return
