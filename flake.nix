@@ -15,6 +15,7 @@
 
         package = import ./default.nix { inherit pkgs; };
       in {
+
         apps.default = {
           type = "app";
           program = "${package}/bin/deadlock-api-ingest";
