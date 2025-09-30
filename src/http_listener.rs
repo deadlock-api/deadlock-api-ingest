@@ -209,7 +209,7 @@ impl PlatformListener {
             }
             warn!(
                 "Device {device_name} not found, pick one from the list: {:?}",
-                device_list.iter().find(|d| d.name == device_name)
+                device_list.iter().map(|d| d.name.clone()).collect::<Vec<_>>().join(", ")
             );
         }
         pcap::Device::lookup()?.context("Failed to find network device")
