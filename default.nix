@@ -1,27 +1,30 @@
 { pkgs ? import <nixpkgs> {} }:
 
-pkgs.rustPlatform.buildRustPackage rec {
+pkgs.stdenv.mkDerivation rec {
   pname = "deadlock-api-ingest";
-  version = "0.1.116-8f2cd8f";
+  version = "0.1.140-8659e00";
 
-  src = pkgs.fetchFromGitHub {
-    owner = "deadlock-api";
-    repo = "deadlock-api-ingest";
-    rev = "v${version}";
-    hash = "sha256-9h/+CsummSGA8GLfMJng/qRseZuQfrHzPCYNqRDt7C0=";
+  src = pkgs.fetchurl {
+    url = "https://github.com/deadlock-api/deadlock-api-ingest/releases/tag/v${version}/deadlock-api-ingest-ubuntu-latest";
+    sha256 = "sha256-bZIHTdhfX1UgH30i0+Sn2mAw7fNpg6OYBEr4oX+9P/8=="; 
   };
 
-  cargoHash = "sha256-iHhPe1rdk/nq0wFnKiG41QzMTOoeq6v583TyzXwHO0Q=";
-
-  doCheck = false; # compiles twice for a `cargo check`
-
   nativeBuildInputs = with pkgs; [
-    pkg-config
+    autoPatchelfHook
   ];
+
   buildInputs = with pkgs; [
     libpcap
-    openssl
+    libgcc
   ];
+
+  unpackPhase = "true";
+
+  installPhase = ''
+    mkdir -p $out/bin
+    install -m755 $src $out/bin/deadlock-api-ingest
+    patchelf --replace-needed libpcap.so.0.8 libpcap.so.1 $out/bin/deadlock-api-ingest
+  '';
 
   meta = {
     description = "A network packet capture tool that monitors HTTP traffic for Deadlock game replay files and ingests metadata to the Deadlock API.";
