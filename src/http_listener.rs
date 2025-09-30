@@ -159,10 +159,11 @@ impl HttpListener for PlatformListener {
 
 #[cfg(target_os = "linux")]
 use anyhow::Context;
+
 #[cfg(target_os = "linux")]
 impl HttpListener for PlatformListener {
     fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item = Vec<u8>>>> {
-        let device = pcap::Device::lookup()?.context("Failed to find network device")?;
+        let device = Self::get_device()?;
 
         info!(
             "Monitoring device: {} ({})",
@@ -194,6 +195,24 @@ impl HttpListener for PlatformListener {
         });
 
         Ok(Box::new(iter))
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl PlatformListener {
+    fn get_device() -> anyhow::Result<pcap::Device> {
+        if let Some(device_name) = std::env::args().nth(1)
+            && let Ok(device_list) = pcap::Device::list()
+        {
+            if let Some(device) = device_list.iter().find(|d| d.name == device_name) {
+                return Ok(device.clone());
+            }
+            warn!(
+                "Device {device_name} not found, pick one from the list: {:?}",
+                device_list.iter().find(|d| d.name == device_name)
+            );
+        }
+        pcap::Device::lookup()?.context("Failed to find network device")
     }
 }
 
