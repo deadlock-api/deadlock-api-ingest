@@ -1,9 +1,12 @@
-use anyhow::{Context, bail};
+use anyhow::bail;
 use core::time::Duration;
 use serde::Serialize;
 use std::sync::OnceLock;
+use std::thread::sleep;
+use tracing::debug;
+use ureq::Error::StatusCode;
 
-static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+static HTTP_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Hash)]
 pub(super) struct Salts {
@@ -50,24 +53,31 @@ impl Salts {
     }
 
     pub(super) fn ingest(&self) -> anyhow::Result<()> {
-        let resp = HTTP_CLIENT
-            .get_or_init(|| {
-                reqwest::blocking::Client::builder()
-                    .timeout(Duration::from_secs(20))
-                    .build()
-                    .unwrap_or_default()
-            })
-            .post("https://api.deadlock-api.com/v1/matches/salts")
-            .json(&[self])
-            .send()
-            .context("Failed to send salts to API")?;
-
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().unwrap_or_default();
-            bail!("Ingest request failed: {status} {body}");
+        if self.match_id > 100000000 {
+            bail!("Match ID is too large: {}", self.match_id);
         }
-        Ok(())
+
+        let max_retries = 10;
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            debug!(salts = ?self, attempt, "Ingesting salts");
+            let response = HTTP_CLIENT
+                .get_or_init(ureq::Agent::new_with_defaults)
+                .post("https://api.deadlock-api.com/v1/matches/salts")
+                .send_json([self]);
+            match response {
+                Ok(r) if r.status().is_success() => return Ok(()),
+                Ok(mut resp) if attempt == max_retries => {
+                    let text = resp.body_mut().read_to_string().unwrap_or_default();
+                    bail!("Ingest request failed: {} {text}", resp.status());
+                }
+                Err(e) if attempt == max_retries || matches!(e, StatusCode(s) if s == 400) => {
+                    bail!("Failed to send salts to API: {e}");
+                }
+                _ => sleep(Duration::from_secs(3)), // Retry on error
+            }
+        }
     }
 }
 

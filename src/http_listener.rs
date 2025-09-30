@@ -36,8 +36,13 @@ pub(crate) trait HttpListener {
             }
 
             // Ingest the Salts
-            salts.ingest()?;
-            info!(salts = ?salts, "Ingested salts");
+            match salts.ingest() {
+                Ok(..) => info!(salts = ?salts, "Ingested salts"),
+                Err(e) => {
+                    warn!(salts = ?salts, "Failed to ingest salts: {e}");
+                    continue;
+                }
+            }
 
             if salts.metadata_salt.is_some() {
                 ingested_metadata.insert(salts.match_id);
@@ -71,8 +76,8 @@ pub(crate) trait HttpListener {
     }
 
     fn find_http_in_packet(data: &[u8]) -> Option<String> {
-        let max_scan = data.len().min(4096);
-        let data = &data[..max_scan];
+        let scan_len = data.len().min(4096);
+        let data = &data[..scan_len];
 
         memchr::memmem::find(data, b"GET ")
             .map(|pos| &data[pos..])
@@ -92,16 +97,16 @@ pub(crate) trait HttpListener {
         let mut lines = http_data.lines();
 
         let request_line = lines.next()?.trim();
-        let mut parts_iter = request_line.split_whitespace();
-        let _method = parts_iter.next()?;
+        let mut parts = request_line.split_whitespace();
+        let _method = parts.next()?;
 
-        let path = parts_iter.next()?.trim_start_matches('/');
+        let path = parts.next()?.trim_start_matches('/');
 
         if path.starts_with("http://") || path.starts_with("https://") {
             return Some(path.to_owned());
         }
 
-        let proto = parts_iter.next()?;
+        let proto = parts.next()?;
         if !proto.starts_with("HTTP/") {
             return None;
         }
@@ -167,9 +172,7 @@ impl HttpListener for PlatformListener {
 
         let mut cap = pcap::Capture::from_device(device)?
             .promisc(true)
-            .snaplen(65536) // Capture full packets
-            .timeout(100) // Shorter timeout for more responsive capture
-            .buffer_size(1_000_000) // Larger buffer
+            .timeout(1000)
             .open()?;
 
         // Set filter to capture HTTP traffic (both outgoing and incoming on port 80)

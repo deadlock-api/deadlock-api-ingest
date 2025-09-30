@@ -37,6 +37,19 @@ jobs:
       - name: Machete
         uses: bnjbvr/cargo-machete@7959c845782fed02ee69303126d4a12d64f1db18
 
+  audit:
+    name: Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Update Rust toolchain to stable
+        run: |
+          rustup override set stable
+          rustup update stable
+      - uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
   typos:
     name: Typos
     runs-on: ubuntu-latest
@@ -115,7 +128,7 @@ jobs:
 
   build:
     name: Build
-    needs: [ fmt, deps, typos, lint, test ]
+    needs: [ fmt, deps, audit, typos, lint, test ]
     strategy:
       fail-fast: false
       matrix:
