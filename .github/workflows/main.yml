@@ -209,6 +209,10 @@ jobs:
           mkdir -p ./release-assets
           find ./artifacts -name "deadlock-api-ingest-*" -type f -exec cp {} ./release-assets/ \;
           ls -la ./release-assets/
+      - name: Update default.nix version
+        run: |
+          sed -i "s/version = \"[^\"]*\";/version = \"${{ needs.build.outputs.version }}\";/" default.nix
+          echo "Updated default.nix version to ${{ needs.build.outputs.version }}"
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
