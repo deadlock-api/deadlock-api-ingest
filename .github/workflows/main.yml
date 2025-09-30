@@ -213,6 +213,14 @@ jobs:
         run: |
           sed -i "s/version = \"[^\"]*\";/version = \"${{ needs.build.outputs.version }}\";/" default.nix
           echo "Updated default.nix version to ${{ needs.build.outputs.version }}"
+      - name: Commit updated default.nix version
+        run: |
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git add default.nix
+          git commit -m "chore: update default.nix version to ${{ needs.build.outputs.version }}"
+          git push origin master
+          echo "Committed and pushed updated default.nix version to master"
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
