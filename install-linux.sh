@@ -108,6 +108,42 @@ install_dependencies() {
         dpkg-query -W -f='${Status}' "$libpcap_pkg" 2>/dev/null | grep -q "install ok installed" || pkgs_to_install+=("$libpcap_pkg")
     fi
 
+    if command -v rpm >/dev/null 2>&1; then
+        rpm -q "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
+    fi
+
+    if command -v pacman >/dev/null 2>&1; then
+        pacman -Q "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
+    fi
+
+    if command -v apk >/dev/null 2>&1; then
+        apk info -e "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
+    fi
+
+    if command -v pkg >/dev/null 2>&1; then
+        pkg info "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
+    fi
+
+    if command -v pkgutil >/dev/null 2>&1; then
+        pkgutil --pkg-info "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
+    fi
+
+    if command -v pkg_add >/dev/null 2>&1; then
+        pkg_info -e "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
+    fi
+
+    if command -v pkgin >/dev/null 2>&1; then
+        pkgin list "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
+    fi
+
+    if command -v pkgconf >/dev/null 2>&1; then
+        pkgconf --exists "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
+    fi
+
+    if command -v pkg-config >/dev/null 2>&1; then
+        pkg-config --exists "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
+    fi
+
     # Symlink libpcap.so to libpcap.so.0.8 if it exists but the latter does not
     if [[ -f /usr/lib/libpcap.so && ! -f /usr/lib/libpcap.so.0.8 ]]; then
         ln -s /usr/lib/libpcap.so /usr/lib/libpcap.so.0.8 || true
