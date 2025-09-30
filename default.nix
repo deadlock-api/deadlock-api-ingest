@@ -5,7 +5,7 @@ pkgs.stdenv.mkDerivation rec {
   version = "0.1.140-8659e00";
 
   src = pkgs.fetchurl {
-    url = "https://github.com/deadlock-api/deadlock-api-ingest/releases/tag/v${version}/deadlock-api-ingest-ubuntu-latest";
+    url = "https://github.com/deadlock-api/deadlock-api-ingest/releases/download/v${version}/deadlock-api-ingest-ubuntu-latest";
     sha256 = "sha256-bZIHTdhfX1UgH30i0+Sn2mAw7fNpg6OYBEr4oX+9P/8=="; 
   };
 
