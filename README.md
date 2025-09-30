@@ -45,6 +45,30 @@ You can add it as a flake and add systemd service files so it will run on boot, 
 sudo nix run github:deadlock-api/deadlock-api-ingest
 ```
 
+Example systemd service file:
+
+```toml
+[Unit]
+Description=Deadlock API Ingest Service
+Documentation=https://github.com/deadlock-api/deadlock-api-ingest
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/nix/store/...-deadlock-api-ingest/bin/deadlock-api-ingest
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=deadlock-api-ingest
+
+[Install]
+WantedBy=multi-user.target
+```
+
 ## Uninstallation
 
 ### Windows
