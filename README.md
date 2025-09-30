@@ -37,6 +37,14 @@ sudo ./install-linux.sh
 
 > **Note**: The installation scripts automatically download the latest release binaries from GitHub and set up the application as a system service.
 
+### NixOS
+
+You can add it as a flake and add systemd service files so it will run on boot, or simply run the binary whenever you need it
+
+```
+sudo nix run github:deadlock-api/deadlock-api-ingest
+```
+
 ## Uninstallation
 
 ### Windows
