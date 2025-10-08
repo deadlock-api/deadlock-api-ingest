@@ -1,7 +1,7 @@
+use crate::error::Error;
 use crate::utils::Salts;
 use std::collections::HashSet;
 use std::str;
-use tracing::{debug, info, warn};
 
 /// Trait that platform-specific listeners implement. Implementors must provide a payload iterator.
 /// The trait provides a default `listen()` which owns the processing loop and calls helpers for
@@ -9,10 +9,10 @@ use tracing::{debug, info, warn};
 pub(crate) trait HttpListener {
     /// Return an iterator of packet payloads (each as a Vec<u8>).
     /// Implementations may return an error if the capture cannot be set up.
-    fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item = Vec<u8>>>>;
+    fn payloads(&self) -> Result<Box<dyn Iterator<Item = Vec<u8>>>, Error>;
 
     /// Start listening and process payloads produced by `payloads()`.
-    fn listen(&self) -> anyhow::Result<()> {
+    fn listen(&self) -> Result<(), Error> {
         let mut ingested_metadata = HashSet::new();
         let mut ingested_replay = HashSet::new();
         for payload in self.payloads()? {
@@ -31,15 +31,14 @@ pub(crate) trait HttpListener {
             let is_new_replay =
                 salts.replay_salt.is_some() && !ingested_replay.contains(&salts.match_id);
             if !is_new_metadata && !is_new_replay {
-                debug!(salts = ?salts, "Already ingested");
                 continue;
             }
 
             // Ingest the Salts
             match salts.ingest() {
-                Ok(..) => info!(salts = ?salts, "Ingested salts"),
+                Ok(..) => println!("Ingested salts: {salts:?}"),
                 Err(e) => {
-                    warn!(salts = ?salts, "Failed to ingest salts: {e}");
+                    eprintln!("Failed to ingest salts: {e:?}");
                     continue;
                 }
             }
@@ -65,7 +64,7 @@ pub(crate) trait HttpListener {
     fn extract_salts(payload: &[u8]) -> Option<Salts> {
         let http_packet = Self::find_http_in_packet(payload)?;
         let url = Self::parse_http_request(&http_packet)?;
-        debug!(url = %url, "Found HTTP URL");
+        println!("Found URL: {url}");
 
         // Strip query parameters before checking file extension
         let base_url = url.split_once('?').map_or(url.as_str(), |(path, _)| path);
@@ -129,8 +128,8 @@ pub(super) struct PlatformListener;
 
 #[cfg(target_os = "windows")]
 impl HttpListener for PlatformListener {
-    fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item = Vec<u8>>>> {
-        let mut cap = pktmon::Capture::new()?;
+    fn payloads(&self) -> Result<Box<dyn Iterator<Item = Vec<u8>>>, Error> {
+        let mut cap = pktmon::Capture::new().map_err(Error::PktMon)?;
 
         // Set filter to capture HTTP traffic (both outgoing and incoming on port 80)
         cap.add_filter(pktmon::filter::PktMonFilter {
@@ -138,8 +137,9 @@ impl HttpListener for PlatformListener {
             port: 80.into(),
             transport_protocol: Some(pktmon::filter::TransportProtocol::TCP),
             ..Default::default()
-        })?;
-        cap.start()?;
+        })
+        .map_err(Error::PktMon)?;
+        cap.start().map_err(Error::PktMon)?;
 
         // Build a boxed iterator that drives the pktmon capture. On errors we log and continue.
         let iter = core::iter::from_fn(move || {
@@ -147,7 +147,7 @@ impl HttpListener for PlatformListener {
                 match cap.next_packet() {
                     Ok(packet) => return Some(packet.payload.to_vec().clone()),
                     Err(e) => {
-                        warn!("Error reading packet: {e}");
+                        eprintln!("Error reading packet: {e}");
                     }
                 }
             }
@@ -158,26 +158,20 @@ impl HttpListener for PlatformListener {
 }
 
 #[cfg(target_os = "linux")]
-use anyhow::Context;
-
-#[cfg(target_os = "linux")]
 impl HttpListener for PlatformListener {
-    fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item = Vec<u8>>>> {
+    fn payloads(&self) -> Result<Box<dyn Iterator<Item = Vec<u8>>>, Error> {
         let device = Self::get_device()?;
+        println!("Monitoring device: {}", device.name);
 
-        info!(
-            "Monitoring device: {} ({})",
-            device.name,
-            device.desc.as_deref().unwrap_or("no description")
-        );
-
-        let mut cap = pcap::Capture::from_device(device)?
+        let mut cap = pcap::Capture::from_device(device)
+            .map_err(Error::PCap)?
             .promisc(true)
             .timeout(1000)
-            .open()?;
+            .open()
+            .map_err(Error::PCap)?;
 
         // Set filter to capture HTTP traffic (both outgoing and incoming on port 80)
-        cap.filter("tcp port 80", true)?;
+        cap.filter("tcp port 80", true).map_err(Error::PCap)?;
 
         // Build a boxed iterator that drives the pcap capture. The closure will loop on timeouts
         // and only return None on fatal errors (ending the iterator).
@@ -187,7 +181,7 @@ impl HttpListener for PlatformListener {
                     Ok(packet) => return Some(packet.data.to_vec()),
                     Err(pcap::Error::TimeoutExpired) => {}
                     Err(e) => {
-                        warn!("Error reading packet: {e}");
+                        println!("Error reading packet: {e}");
                         return None;
                     }
                 }
@@ -200,14 +194,14 @@ impl HttpListener for PlatformListener {
 
 #[cfg(target_os = "linux")]
 impl PlatformListener {
-    fn get_device() -> anyhow::Result<pcap::Device> {
+    fn get_device() -> Result<pcap::Device, Error> {
         if let Some(device_name) = std::env::args().nth(1)
             && let Ok(device_list) = pcap::Device::list()
         {
             if let Some(device) = device_list.iter().find(|d| d.name == device_name) {
                 return Ok(device.clone());
             }
-            warn!(
+            println!(
                 "Device {device_name} not found, pick one from the list: {:?}",
                 device_list
                     .iter()
@@ -216,7 +210,9 @@ impl PlatformListener {
                     .join(", ")
             );
         }
-        pcap::Device::lookup()?.context("Failed to find network device")
+        pcap::Device::lookup()
+            .and_then(|r| r.ok_or(pcap::Error::InvalidRawFd))
+            .map_err(Error::PCap)
     }
 }
 
@@ -226,7 +222,7 @@ mod tests {
 
     struct DummyListener;
     impl HttpListener for DummyListener {
-        fn payloads(&self) -> anyhow::Result<Box<dyn Iterator<Item = Vec<u8>>>> {
+        fn payloads(&self) -> Result<Box<dyn Iterator<Item = Vec<u8>>>, Error> {
             Ok(Box::new(core::iter::empty::<Vec<u8>>()))
         }
     }

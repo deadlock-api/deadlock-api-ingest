@@ -9,28 +9,16 @@
 #![deny(clippy::pedantic)]
 #![deny(clippy::std_instead_of_core)]
 #![allow(clippy::unreadable_literal)]
+mod error;
 mod http_listener;
 mod utils;
 
 use crate::http_listener::{HttpListener, PlatformListener};
-use tracing::error;
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::prelude::*;
 
-fn main() -> anyhow::Result<()> {
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or(EnvFilter::new(
-        "debug,hyper_util=warn,reqwest=warn,rustls=warn,pktmon=warn,pcap=warn",
-    ));
-    let fmt_layer = tracing_subscriber::fmt::layer();
-
-    tracing_subscriber::registry()
-        .with(fmt_layer)
-        .with(env_filter)
-        .init();
-
+fn main() {
     loop {
         if let Err(e) = PlatformListener.listen() {
-            error!("Error in HTTP listener: {e}");
+            println!("Error in HTTP listener: {e:?}");
         }
         std::thread::sleep(core::time::Duration::from_secs(10));
     }
