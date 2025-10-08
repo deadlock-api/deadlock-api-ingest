@@ -1,9 +1,8 @@
-use anyhow::bail;
+use crate::error::Error;
 use core::time::Duration;
 use serde::Serialize;
 use std::sync::OnceLock;
 use std::thread::sleep;
-use tracing::debug;
 use ureq::Error::StatusCode;
 
 static HTTP_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
@@ -52,16 +51,16 @@ impl Salts {
         }
     }
 
-    pub(super) fn ingest(&self) -> anyhow::Result<()> {
+    pub(super) fn ingest(&self) -> Result<(), Error> {
         if self.match_id > 100000000 {
-            bail!("Match ID is too large: {}", self.match_id);
+            return Err(Error::MatchIdTooLarge);
         }
 
         let max_retries = 10;
         let mut attempt = 0;
         loop {
             attempt += 1;
-            debug!(salts = ?self, attempt, "Ingesting salts");
+            println!("Ingesting salts: {self:?} ({attempt}/{max_retries})");
             let response = HTTP_CLIENT
                 .get_or_init(ureq::Agent::new_with_defaults)
                 .post("https://api.deadlock-api.com/v1/matches/salts")
@@ -70,10 +69,10 @@ impl Salts {
                 Ok(r) if r.status().is_success() => return Ok(()),
                 Ok(mut resp) if attempt == max_retries => {
                     let text = resp.body_mut().read_to_string().unwrap_or_default();
-                    bail!("Ingest request failed: {} {text}", resp.status());
+                    return Err(Error::FailedToIngest(text));
                 }
                 Err(e) if attempt == max_retries || matches!(e, StatusCode(s) if s == 400) => {
-                    bail!("Failed to send salts to API: {e}");
+                    return Err(Error::Ureq(e));
                 }
                 _ => sleep(Duration::from_secs(3)), // Retry on error
             }
