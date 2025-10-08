@@ -211,8 +211,8 @@ impl PlatformListener {
             );
         }
         pcap::Device::lookup()
-            .and_then(|r| r.ok_or(pcap::Error::InvalidRawFd))
             .map_err(Error::PCap)
+            .and_then(|r| r.ok_or(Error::NoDeviceFound))
     }
 }
 
