@@ -1,4 +1,5 @@
 use core::fmt::Debug;
+use core::fmt::Display;
 
 pub(crate) enum Error {
     MatchIdTooLarge,
@@ -10,6 +11,14 @@ pub(crate) enum Error {
     NoDeviceFound,
     #[cfg(target_os = "windows")]
     PktMon(std::io::Error),
+}
+
+impl core::error::Error for Error {}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self:?}")
+    }
 }
 
 impl Debug for Error {
