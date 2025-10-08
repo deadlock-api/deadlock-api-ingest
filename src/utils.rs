@@ -102,63 +102,62 @@ impl Salts {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rstest::rstest;
 
-    #[rstest]
-    #[case(
-        "http://replay404.valve.net/1422450/37959196_937530290.meta.bz2",
-        404,
-        37959196,
-        Some(937530290),
-        None
-    )]
-    #[case(
-        "http://replay400.valve.net/1422450/38090632_88648761.meta.bz2",
-        400,
-        38090632,
-        Some(88648761),
-        None
-    )]
-    #[case(
-        "http://replay183.valve.net/1422450/42476710_428480166.meta.bz2",
-        183,
-        42476710,
-        Some(428480166),
-        None
-    )]
-    #[case(
-        "http://replay183.valve.net/1422450/42476710_428480166.dem.bz2",
-        183,
-        42476710,
-        None,
-        Some(428480166)
-    )]
-    #[case(
-        "http://replay404.valve.net/1422450/37959196_937530290.meta.bz2?v=2",
-        404,
-        37959196,
-        Some(937530290),
-        None
-    )]
-    #[case(
-        "http://replay183.valve.net/1422450/42476710_428480166.dem.bz2?v=2",
-        183,
-        42476710,
-        None,
-        Some(428480166)
-    )]
-    fn test_extract_salts(
-        #[case] url: &str,
-        #[case] cluster_id: u32,
-        #[case] match_id: u64,
-        #[case] metadata_salt: Option<u32>,
-        #[case] replay_salt: Option<u32>,
-    ) {
-        let salts = Salts::from_url(url).unwrap();
-        assert_eq!(salts.cluster_id, cluster_id);
-        assert_eq!(salts.match_id, match_id);
-        assert_eq!(salts.metadata_salt, metadata_salt);
-        assert_eq!(salts.replay_salt, replay_salt);
+    #[test]
+    fn test_extract_salts() {
+        #[allow(clippy::type_complexity)]
+        let cases: &[(&str, u32, u64, Option<u32>, Option<u32>)] = &[
+            (
+                "http://replay404.valve.net/1422450/37959196_937530290.meta.bz2",
+                404,
+                37959196,
+                Some(937530290),
+                None,
+            ),
+            (
+                "http://replay400.valve.net/1422450/38090632_88648761.meta.bz2",
+                400,
+                38090632,
+                Some(88648761),
+                None,
+            ),
+            (
+                "http://replay183.valve.net/1422450/42476710_428480166.meta.bz2",
+                183,
+                42476710,
+                Some(428480166),
+                None,
+            ),
+            (
+                "http://replay183.valve.net/1422450/42476710_428480166.dem.bz2",
+                183,
+                42476710,
+                None,
+                Some(428480166),
+            ),
+            (
+                "http://replay404.valve.net/1422450/37959196_937530290.meta.bz2?v=2",
+                404,
+                37959196,
+                Some(937530290),
+                None,
+            ),
+            (
+                "http://replay183.valve.net/1422450/42476710_428480166.dem.bz2?v=2",
+                183,
+                42476710,
+                None,
+                Some(428480166),
+            ),
+        ];
+
+        for &(url, cluster_id, match_id, metadata_salt, replay_salt) in cases {
+            let salts = Salts::from_url(url).unwrap();
+            assert_eq!(salts.cluster_id, cluster_id);
+            assert_eq!(salts.match_id, match_id);
+            assert_eq!(salts.metadata_salt, metadata_salt);
+            assert_eq!(salts.replay_salt, replay_salt);
+        }
     }
 
     #[test]

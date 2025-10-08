@@ -21,6 +21,3 @@ strip = true
 opt-level = "z"
 lto = true
 panic = "abort"
-
-[dev-dependencies]
-rstest = "0.26.1"
