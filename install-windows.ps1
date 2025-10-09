@@ -437,15 +437,6 @@ try {
 
     Write-Log -Level 'INFO' "Installing application..."
 
-    # Store version information
-    Set-VersionInfo -Version $release.Version
-
-    # Create configuration file
-    New-ConfigFile
-
-    # Download update checker script
-    Get-UpdateChecker
-
     # Create the main scheduled task
     Manage-StartupTask -Action 'Create' -ExecutablePath $downloadPath
 
@@ -463,8 +454,51 @@ try {
         $script:ErrorDetails += "Task start failed (non-critical)"
     }
 
-    # Create the update scheduled task
-    Manage-UpdateTask -Action 'Create'
+    # Ask user if they want automatic updates
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "     AUTOMATIC UPDATES (OPTIONAL)      " -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "The main application has been installed and started successfully!" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Would you like to enable automatic updates?" -ForegroundColor Yellow
+    Write-Host "This will create a scheduled task that checks for updates daily at 3 AM." -ForegroundColor White
+    Write-Host ""
+    Write-Host "Enable automatic updates? (Y/N): " -ForegroundColor Yellow -NoNewline
+
+    $installUpdater = $false
+    do {
+        $response = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        $key = $response.Character.ToString().ToUpper()
+
+        if ($key -eq "Y" -or $key -eq "N") {
+            Write-Host $key -ForegroundColor Cyan
+            if ($key -eq "Y") {
+                $installUpdater = $true
+            }
+            break
+        }
+    } while ($true)
+
+    Write-Host ""
+
+    if ($installUpdater) {
+        Write-Log -Level 'INFO' "User chose to enable automatic updates."
+        # Store version information
+        Set-VersionInfo -Version $release.Version
+        # Create configuration file
+        New-ConfigFile
+        # Download update checker script
+        Get-UpdateChecker
+        # Create the update scheduled task
+        Manage-UpdateTask -Action 'Create'
+    } else {
+        Write-Log -Level 'INFO' "User chose to skip automatic updates."
+        Write-Host "Automatic updates will not be installed." -ForegroundColor Yellow
+        Write-Host "You can manually update by downloading the latest version from GitHub or re-run the installer." -ForegroundColor White
+        Write-Host ""
+    }
 }
 catch {
     Handle-FatalError -ErrorMessage "Unexpected error during installation." -DetailedError $_.Exception.Message
