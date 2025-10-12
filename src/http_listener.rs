@@ -54,25 +54,26 @@ pub(crate) trait HttpListener {
                 if is_new_metadata || is_new_replay {
                     // Ingest the Salts
                     match salts.ingest() {
-                        Ok(..) => println!("Ingested salts: {salts:?}"),
+                        Ok(..) => {
+                            println!("Ingested salts: {salts:?}");
+                            if salts.metadata_salt.is_some() {
+                                ingested_metadata.insert(salts.match_id);
+
+                                if ingested_metadata.len() > 1_000 {
+                                    ingested_metadata.clear(); // Clear the set if it's too large
+                                }
+                            }
+                            if salts.replay_salt.is_some() {
+                                ingested_replay.insert(salts.match_id);
+
+                                if ingested_replay.len() > 1_000 {
+                                    ingested_replay.clear(); // Clear the set if it's too large
+                                }
+                            }
+                        }
                         Err(e) => {
                             eprintln!("Failed to ingest salts: {e:?}");
                             continue;
-                        }
-                    }
-
-                    if salts.metadata_salt.is_some() {
-                        ingested_metadata.insert(salts.match_id);
-
-                        if ingested_metadata.len() > 1_000 {
-                            ingested_metadata.clear(); // Clear the set if it's too large
-                        }
-                    }
-                    if salts.replay_salt.is_some() {
-                        ingested_replay.insert(salts.match_id);
-
-                        if ingested_replay.len() > 1_000 {
-                            ingested_replay.clear(); // Clear the set if it's too large
                         }
                     }
                 }
