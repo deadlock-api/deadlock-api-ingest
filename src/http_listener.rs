@@ -88,15 +88,15 @@ pub(crate) trait HttpListener {
 
     fn extract_salts(payload: &[u8]) -> Option<Salts> {
         let http_packet = http::find_http_in_packet(payload)?;
-        println!("Found HTTP packet: {http_packet}");
         let url = http::parse_http_request(&http_packet)?;
-        println!("Found URL: {url}");
 
         // Strip query parameters before checking file extension
         let base_url = url.split_once('?').map_or(url.as_str(), |(path, _)| path);
-        if !base_url.ends_with(".meta.bz2") && !base_url.ends_with(".dem.bz2") {
+        if !base_url.contains(".meta.bz2") && !base_url.contains(".dem.bz2") {
+            println!("Found URL (without salts): {url}");
             return None;
         }
+        println!("Found URL: {url}");
         Salts::from_url(&url)
     }
 }
