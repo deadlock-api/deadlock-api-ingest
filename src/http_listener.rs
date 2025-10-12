@@ -1,5 +1,6 @@
 use crate::error::Error;
 use crate::utils::Salts;
+use memchr::memmem;
 use std::collections::HashSet;
 use std::str;
 
@@ -70,12 +71,9 @@ pub(crate) trait HttpListener {
     }
 
     fn find_http_in_packet(data: &[u8]) -> Option<String> {
-        let scan_len = data.len().min(4096);
-        let data = &data[..scan_len];
-
-        memchr::memmem::find(data, b"GET ")
+        memmem::find(data, b"GET ")
             .map(|pos| &data[pos..])
-            .map(|r| match memchr::memmem::find(r, b"\r\n\r\n") {
+            .map(|r| match memmem::find(r, b"\r\n\r\n") {
                 Some(end) => &r[..end + 4],
                 None => &r[..r.len().min(1024)],
             })
