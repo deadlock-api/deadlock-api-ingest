@@ -59,6 +59,7 @@ pub(crate) trait HttpListener {
 
     fn extract_salts(payload: &[u8]) -> Option<Salts> {
         let http_packet = Self::find_http_in_packet(payload)?;
+        println!("Found HTTP packet: {http_packet}");
         let url = Self::parse_http_request(&http_packet)?;
         println!("Found URL: {url}");
 
@@ -97,11 +98,7 @@ pub(crate) trait HttpListener {
         if path.starts_with("http://") || path.starts_with("https://") {
             return Some(path.to_owned());
         }
-
-        let proto = parts.next()?;
-        if !proto.starts_with("HTTP/") {
-            return None;
-        }
+        let path = path.trim_start_matches("/");
 
         lines
             .map(str::trim)
