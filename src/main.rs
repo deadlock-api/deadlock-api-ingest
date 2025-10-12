@@ -10,7 +10,10 @@
 #![deny(clippy::std_instead_of_core)]
 #![allow(clippy::unreadable_literal)]
 mod error;
+mod http;
 mod http_listener;
+mod packet;
+mod stream;
 mod utils;
 
 use crate::http_listener::{HttpListener, PlatformListener};
