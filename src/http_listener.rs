@@ -16,11 +16,6 @@ pub(crate) trait HttpListener {
         let mut ingested_metadata = HashSet::new();
         let mut ingested_replay = HashSet::new();
         for payload in self.payloads()? {
-            // If the payload is too short, it's not an HTTP request.
-            if payload.len() < 60 {
-                continue;
-            }
-
             // Try extract salts from the payload
             let Some(salts) = Self::extract_salts(&payload) else {
                 continue;
