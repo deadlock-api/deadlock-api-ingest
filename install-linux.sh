@@ -144,19 +144,6 @@ install_dependencies() {
         pkg-config --exists "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
     fi
 
-    # Symlink libpcap.so to libpcap.so.0.8 if it exists but the latter does not
-    if [[ ! -f /usr/lib/libpcap.so.0.8 && ! -f /usr/lib64/libpcap.so.0.8 ]]; then
-        libpcap_path=$(find /usr/lib /usr/lib64 /lib /lib64 /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu -type f -name 'libpcap.so*' 2>/dev/null | head -n 1 || true)
-
-        if [[ -n "$libpcap_path" ]]; then
-            dest="$(dirname "$libpcap_path")/libpcap.so.0.8"
-            if [[ ! -e "$dest" ]]; then
-                ln -s "$libpcap_path" "$dest" 2>/dev/null || true
-                log "INFO" "Created symlink: $dest -> $libpcap_path"
-            fi
-        fi
-    fi
-
     if [[ ${#pkgs_to_install[@]} -eq 0 ]]; then
         log "SUCCESS" "All dependencies are already installed."
         return
@@ -186,6 +173,19 @@ install_dependencies() {
     fi
 
     log "SUCCESS" "Dependencies installed successfully."
+
+    # Symlink libpcap.so to libpcap.so.0.8 if it exists but the latter does not
+    if [[ ! -f /usr/lib/libpcap.so.0.8 && ! -f /usr/lib64/libpcap.so.0.8 ]]; then
+        libpcap_path=$(find /usr/lib /usr/lib64 /lib /lib64 /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu -type f -name 'libpcap.so*' 2>/dev/null | head -n 1 || true)
+
+        if [[ -n "$libpcap_path" ]]; then
+            dest="$(dirname "$libpcap_path")/libpcap.so.0.8"
+            if [[ ! -e "$dest" ]]; then
+                ln -s "$libpcap_path" "$dest" 2>/dev/null || true
+                log "INFO" "Created symlink: $dest -> $libpcap_path"
+            fi
+        fi
+    fi
 }
 
 # Function to get latest release info from GitHub API
