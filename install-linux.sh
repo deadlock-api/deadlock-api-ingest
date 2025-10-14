@@ -145,11 +145,16 @@ install_dependencies() {
     fi
 
     # Symlink libpcap.so to libpcap.so.0.8 if it exists but the latter does not
-    if [[ -f /usr/lib/libpcap.so && ! -f /usr/lib/libpcap.so.0.8 ]]; then
-        ln -s /usr/lib/libpcap.so /usr/lib/libpcap.so.0.8 || true
-    fi
-    if [[ -f /usr/lib64/libpcap.so && ! -f /usr/lib64/libpcap.so.0.8 ]]; then
-        ln -s /usr/lib64/libpcap.so /usr/lib64/libpcap.so.0.8 || true
+    if [[ ! -f /usr/lib/libpcap.so.0.8 && ! -f /usr/lib64/libpcap.so.0.8 ]]; then
+        libpcap_path=$(find /usr/lib /usr/lib64 /lib /lib64 /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu -type f -name 'libpcap.so*' 2>/dev/null | head -n 1 || true)
+
+        if [[ -n "$libpcap_path" ]]; then
+            dest="$(dirname "$libpcap_path")/libpcap.so.0.8"
+            if [[ ! -e "$dest" ]]; then
+                ln -s "$libpcap_path" "$dest" 2>/dev/null || true
+                log "INFO" "Created symlink: $dest -> $libpcap_path"
+            fi
+        fi
     fi
 
     if [[ ${#pkgs_to_install[@]} -eq 0 ]]; then
