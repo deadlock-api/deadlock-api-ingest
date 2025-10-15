@@ -19,6 +19,6 @@ pcap = "2.3.0"
 [profile.release]
 strip = true
 codegen-units = 1
-opt-level = "z"
+opt-level = "s"
 lto = true
 panic = "abort"
