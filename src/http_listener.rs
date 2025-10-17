@@ -1,12 +1,8 @@
 use crate::error::Error;
-use crate::http;
-use crate::packet::TcpStreamId;
-use crate::stream::StreamBuffer;
 use crate::utils::Salts;
-use core::time::Duration;
-use std::collections::{HashMap, HashSet};
-
-const MAX_CONCURRENT_STREAMS: usize = 1000;
+use memchr::memmem;
+use std::collections::HashSet;
+use std::str;
 
 /// Trait that platform-specific listeners implement. Implementors must provide a payload iterator.
 /// The trait provides a default `listen()` which owns the processing loop and calls helpers for
@@ -20,76 +16,52 @@ pub(crate) trait HttpListener {
     fn listen(&self) -> Result<(), Error> {
         let mut ingested_metadata = HashSet::new();
         let mut ingested_replay = HashSet::new();
-        let mut stream_buffers: HashMap<TcpStreamId, StreamBuffer> = HashMap::new();
-        let stream_timeout = Duration::from_secs(30);
-
         for payload in self.payloads()? {
-            let Some(stream_id) = TcpStreamId::from_packet(&payload) else {
+            // Try extract salts from the payload
+            let Some(salts) = Self::extract_salts(&payload) else {
                 continue;
             };
 
-            // Get or create stream buffer
-            let buffer = stream_buffers
-                .entry(stream_id)
-                .or_insert_with(StreamBuffer::new);
-
-            // Append payload to stream buffer
-            buffer.append(&payload);
-
-            // Try to extract salts from the accumulated stream data
-            let salts = Self::extract_salts(&buffer.data);
-
-            // If we successfully extracted salts, clear the buffer for this stream
-            if salts.is_some() {
-                buffer.clear();
+            let is_new_metadata =
+                salts.metadata_salt.is_some() && !ingested_metadata.contains(&salts.match_id);
+            let is_new_replay =
+                salts.replay_salt.is_some() && !ingested_replay.contains(&salts.match_id);
+            if !is_new_metadata && !is_new_replay {
+                continue;
             }
 
-            // Process the salts if found
-            if let Some(salts) = salts {
-                let is_new_metadata =
-                    salts.metadata_salt.is_some() && !ingested_metadata.contains(&salts.match_id);
-                let is_new_replay =
-                    salts.replay_salt.is_some() && !ingested_replay.contains(&salts.match_id);
-
-                if is_new_metadata || is_new_replay {
-                    // Ingest the Salts
-                    match salts.ingest() {
-                        Ok(..) => {
-                            println!("Ingested salts: {salts:?}");
-                            if salts.metadata_salt.is_some() {
-                                ingested_metadata.insert(salts.match_id);
-
-                                if ingested_metadata.len() > 1_000 {
-                                    ingested_metadata.clear(); // Clear the set if it's too large
-                                }
-                            }
-                            if salts.replay_salt.is_some() {
-                                ingested_replay.insert(salts.match_id);
-
-                                if ingested_replay.len() > 1_000 {
-                                    ingested_replay.clear(); // Clear the set if it's too large
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to ingest salts: {e:?}");
-                            continue;
-                        }
-                    }
+            // Ingest the Salts
+            match salts.ingest() {
+                Ok(..) => println!("Ingested salts: {salts:?}"),
+                Err(e) => {
+                    eprintln!("Failed to ingest salts: {e:?}");
+                    continue;
                 }
             }
 
-            // Clean up stale stream buffers
-            if stream_buffers.len() > MAX_CONCURRENT_STREAMS {
-                stream_buffers.retain(|_, buffer| !buffer.is_stale(stream_timeout));
+            if salts.metadata_salt.is_some() {
+                ingested_metadata.insert(salts.match_id);
+
+                if ingested_metadata.len() > 1_000 {
+                    ingested_metadata.clear(); // Clear the set if it's too large
+                }
+            }
+            if salts.replay_salt.is_some() {
+                ingested_replay.insert(salts.match_id);
+
+                if ingested_replay.len() > 1_000 {
+                    ingested_replay.clear(); // Clear the set if it's too large
+                }
             }
         }
         Ok(())
     }
 
     fn extract_salts(payload: &[u8]) -> Option<Salts> {
-        let http_packet = http::find_http_in_packet(payload)?;
-        let url = http::parse_http_request(&http_packet)?;
+        let http_packet = Self::find_http_in_packet(payload)?;
+        println!("Found HTTP packet: {http_packet}");
+        let url = Self::parse_http_request(&http_packet)?;
+        println!("Found URL: {url}");
 
         // Strip query parameters before checking file extension
         let base_url = url.split_once('?').map_or(url.as_str(), |(path, _)| path);
@@ -99,6 +71,48 @@ pub(crate) trait HttpListener {
         }
         println!("Found URL: {url}");
         Salts::from_url(&url)
+    }
+
+    fn find_http_in_packet(data: &[u8]) -> Option<String> {
+        memmem::find(data, b"GET ")
+            .map(|pos| &data[pos..])
+            .map(|r| match memmem::find(r, b"\r\n\r\n") {
+                Some(end) => &r[..end + 4],
+                None => &r[..r.len().min(1024)],
+            })
+            .map(|r| {
+                str::from_utf8(r).map_or_else(
+                    |_| String::from_utf8_lossy(r).to_string(),
+                    ToString::to_string,
+                )
+            })
+    }
+
+    fn parse_http_request(http_data: &str) -> Option<String> {
+        let mut lines = http_data.lines();
+
+        let request_line = lines.next()?.trim();
+        let mut parts = request_line.split_whitespace();
+        let _method = parts.next()?;
+
+        let path = parts.next()?.trim_start_matches('/');
+
+        if path.starts_with("http://") || path.starts_with("https://") {
+            return Some(path.to_owned());
+        }
+        let path = path.trim_start_matches('/');
+
+        lines
+            .map(str::trim)
+            .take_while(|l| !l.is_empty())
+            .find_map(|line| {
+                line.split_once(':').and_then(|(name, value)| {
+                    name.trim()
+                        .eq_ignore_ascii_case("host")
+                        .then(|| value.trim())
+                })
+            })
+            .map(|host| format!("http://{host}/{path}"))
     }
 }
 
@@ -206,6 +220,23 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_http_request_via_trait() {
+        let http_data = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n";
+        assert_eq!(
+            <DummyListener as HttpListener>::parse_http_request(http_data).unwrap(),
+            "http://www.example.com/"
+        );
+    }
+
+    #[test]
+    fn test_find_http_in_packet_via_trait() {
+        let payload =
+            b"\x00\x01randomdataGET /path HTTP/1.1\r\nHost: example.com\r\n\r\nmore".to_vec();
+        let found = <DummyListener as HttpListener>::find_http_in_packet(&payload).unwrap();
+        assert!(found.contains("GET /path HTTP/1.1"));
+    }
+
+    #[test]
     fn test_extract_salts_with_query_params() {
         // Test URL without query params - should work
         let http_data_without_query = "GET /1422450/37959196_937530290.meta.bz2 HTTP/1.1\r\nHost: replay404.valve.net\r\n\r\n";
@@ -223,52 +254,6 @@ mod tests {
         assert!(
             salts_with_query.is_some(),
             "Should extract salts from URL with query params"
-        );
-    }
-
-    #[test]
-    fn test_multi_packet_http_request() {
-        // Simulate an HTTP request split across two packets
-        let packet1 = b"GET /1422450/37959196_937530290.meta.bz2 HTTP/1.1\r\n";
-        let packet2 = b"Host: replay404.valve.net\r\n\r\n";
-
-        // First packet alone should not extract salts (incomplete request)
-        let salts1 = <DummyListener as HttpListener>::extract_salts(packet1);
-        assert!(
-            salts1.is_none(),
-            "Incomplete request should not extract salts"
-        );
-
-        // Combined packets should extract salts
-        let mut combined = packet1.to_vec();
-        combined.extend_from_slice(packet2);
-        let salts_combined = <DummyListener as HttpListener>::extract_salts(&combined);
-        assert!(
-            salts_combined.is_some(),
-            "Complete reassembled request should extract salts"
-        );
-    }
-
-    #[test]
-    fn test_fragmented_http_request_with_body() {
-        // Test HTTP request split in the middle of headers
-        let packet1 = b"randomdataGET /1422450/37959196_937530290.meta.bz2 HTTP/1.1\r\nHo";
-        let packet2 = b"st: replay404.valve.net\r\n\r\n";
-
-        // First packet alone should not work
-        let salts1 = <DummyListener as HttpListener>::extract_salts(packet1);
-        assert!(
-            salts1.is_none(),
-            "Fragmented request should not extract salts"
-        );
-
-        // Combined should work
-        let mut combined = packet1.to_vec();
-        combined.extend_from_slice(packet2);
-        let salts_combined = <DummyListener as HttpListener>::extract_salts(&combined);
-        assert!(
-            salts_combined.is_some(),
-            "Reassembled fragmented request should extract salts"
         );
     }
 }
