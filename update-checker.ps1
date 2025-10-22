@@ -15,6 +15,8 @@ $VersionFile = "$InstallDir\version.txt"
 $ConfigFile = "$InstallDir\config.conf"
 $BackupDir = "$InstallDir\backup"
 $UpdateLogFile = "$env:ProgramData\$AppName\updater.log"
+$StartupShortcutPath = "$InstallDir\${AppName}-startup.lnk"
+$RegistryRunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 
 # --- Helper Functions ---
 
@@ -196,29 +198,106 @@ function Install-NewVersion {
     }
 }
 
-function Test-NewVersion {
-    $TaskName = $AppName
-    
-    Write-UpdateLog -Level 'INFO' "Testing new version by restarting scheduled task..."
-    
+function Stop-Application {
+    Write-UpdateLog -Level 'INFO' "Stopping application..."
+
     try {
-        # Stop the task if running
-        Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-        
-        # Start the task
-        Start-ScheduledTask -TaskName $TaskName
-        
-        # Wait a moment and check if it's running
-        Start-Sleep -Seconds 5
-        
-        $task = Get-ScheduledTask -TaskName $TaskName
-        $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskName
-        
-        if ($taskInfo.LastTaskResult -eq 0 -or $task.State -eq 'Running') {
-            Write-UpdateLog -Level 'SUCCESS' "New version is running successfully."
-            return $true
+        # Try to stop the process by name
+        $processes = Get-Process -Name $AppName -ErrorAction SilentlyContinue
+        if ($processes) {
+            $processes | Stop-Process -Force
+            Write-UpdateLog -Level 'INFO' "Application process stopped."
         } else {
-            Write-UpdateLog -Level 'ERROR' "New version failed to start. Last result: $($taskInfo.LastTaskResult)"
+            Write-UpdateLog -Level 'INFO' "No running application process found."
+        }
+
+        # Also try to stop old scheduled task if it exists (for migration)
+        Stop-ScheduledTask -TaskName $AppName -ErrorAction SilentlyContinue
+
+        return $true
+    } catch {
+        Write-UpdateLog -Level 'WARN' "Failed to stop application: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Start-Application {
+    Write-UpdateLog -Level 'INFO' "Starting application..."
+
+    try {
+        $ExecutablePath = Join-Path -Path $InstallDir -ChildPath $FinalExecutableName
+
+        # Check if auto-start is enabled via registry
+        $regValue = Get-ItemProperty -Path $RegistryRunKey -Name $AppName -ErrorAction SilentlyContinue
+
+        if ($regValue) {
+            # Auto-start is enabled, start in background with admin privileges
+            $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+            $startInfo.FileName = $ExecutablePath
+            $startInfo.WorkingDirectory = $InstallDir
+            $startInfo.Verb = "runas"  # Run as administrator
+            $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+            $startInfo.CreateNoWindow = $true
+
+            $process = New-Object System.Diagnostics.Process
+            $process.StartInfo = $startInfo
+            $process.Start() | Out-Null
+
+            Write-UpdateLog -Level 'INFO' "Application started in background with admin privileges."
+        } else {
+            # Check for old scheduled task (for migration)
+            $task = Get-ScheduledTask -TaskName $AppName -ErrorAction SilentlyContinue
+            if ($task) {
+                Start-ScheduledTask -TaskName $AppName
+                Write-UpdateLog -Level 'INFO' "Application started via scheduled task (legacy)."
+            } else {
+                # No auto-start configured, start in background anyway
+                $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+                $startInfo.FileName = $ExecutablePath
+                $startInfo.WorkingDirectory = $InstallDir
+                $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+                $startInfo.CreateNoWindow = $true
+
+                $process = New-Object System.Diagnostics.Process
+                $process.StartInfo = $startInfo
+                $process.Start() | Out-Null
+
+                Write-UpdateLog -Level 'INFO' "Application started in background (no auto-start configured)."
+            }
+        }
+
+        return $true
+    } catch {
+        Write-UpdateLog -Level 'ERROR' "Failed to start application: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Test-NewVersion {
+    Write-UpdateLog -Level 'INFO' "Testing new version by restarting application..."
+
+    try {
+        # Stop the application
+        Stop-Application
+
+        # Wait a moment
+        Start-Sleep -Seconds 2
+
+        # Start the application
+        if (Start-Application) {
+            # Wait a moment and check if it's running
+            Start-Sleep -Seconds 5
+
+            $process = Get-Process -Name $AppName -ErrorAction SilentlyContinue
+            if ($process) {
+                Write-UpdateLog -Level 'SUCCESS' "New version is running successfully."
+                return $true
+            } else {
+                Write-UpdateLog -Level 'ERROR' "New version failed to start - process not found."
+                return $false
+            }
+        } else {
+            Write-UpdateLog -Level 'ERROR' "Failed to start new version."
             return $false
         }
     } catch {
@@ -259,13 +338,8 @@ Write-UpdateLog -Level 'INFO' "Update available. Starting update process..."
 # Create backup
 $BackupPath = New-Backup
 
-# Stop the main task
-Write-UpdateLog -Level 'INFO' "Stopping main task for update..."
-try {
-    Stop-ScheduledTask -TaskName $AppName -ErrorAction SilentlyContinue
-} catch {
-    Write-UpdateLog -Level 'WARN' "Failed to stop task, continuing anyway..."
-}
+# Stop the application
+Stop-Application
 
 # Download and install new version
 if (Install-NewVersion $LatestVersion) {
@@ -280,7 +354,7 @@ if (Install-NewVersion $LatestVersion) {
         # Rollback on failure
         Write-UpdateLog -Level 'ERROR' "New version failed to start. Attempting rollback..."
         if (Restore-Backup $BackupPath) {
-            Start-ScheduledTask -TaskName $AppName
+            Start-Application
             Write-UpdateLog -Level 'ERROR' "Update failed, but rollback was successful."
             exit 1
         } else {
@@ -290,7 +364,7 @@ if (Install-NewVersion $LatestVersion) {
     }
 } else {
     # Restart old version on download failure
-    Write-UpdateLog -Level 'ERROR' "Failed to download new version. Restarting existing task..."
-    Start-ScheduledTask -TaskName $AppName
+    Write-UpdateLog -Level 'ERROR' "Failed to download new version. Restarting application..."
+    Start-Application
     exit 1
 }

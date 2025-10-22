@@ -1,5 +1,5 @@
 # Deadlock API Ingest - Windows Installation Script
-# This script downloads and installs the application to run automatically on system startup via Task Scheduler.
+# This script downloads and installs the application to run automatically on system startup via Registry Run key.
 
 # --- Configuration ---
 $AppName = "deadlock-api-ingest"
@@ -10,6 +10,7 @@ $AssetKeyword = "windows-latest.exe"
 $InstallDir = "$env:ProgramFiles\$AppName"
 $FinalExecutableName = "$AppName.exe"
 $LogFile = "$env:TEMP\${AppName}-install.log"
+$StartupShortcutPath = "$InstallDir\${AppName}-startup.lnk"
 
 # Update functionality
 $UpdateTaskName = "${AppName}-updater"
@@ -18,6 +19,9 @@ $UpdateLogFile = "$env:ProgramData\${AppName}\updater.log"
 $VersionFile = "$InstallDir\version.txt"
 $ConfigFile = "$InstallDir\config.conf"
 $BackupDir = "$InstallDir\backup"
+
+# Registry key for auto-start
+$RegistryRunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 
 # --- Script Setup ---
 $ErrorActionPreference = 'Stop'
@@ -214,46 +218,120 @@ function Get-UpdateChecker {
     }
 }
 
-# Function to manage the Scheduled Task for autostart
-function Manage-StartupTask {
+# Function to create a shortcut with "Run as administrator" enabled
+function New-StartupShortcut {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetPath,
+        [Parameter(Mandatory = $true)]
+        [string]$ShortcutPath
+    )
+
+    try {
+        $WScriptShell = New-Object -ComObject WScript.Shell
+        $Shortcut = $WScriptShell.CreateShortcut($ShortcutPath)
+        $Shortcut.TargetPath = $TargetPath
+        $Shortcut.WorkingDirectory = $InstallDir
+        $Shortcut.Description = "Deadlock API Ingest - Run with Administrator privileges"
+        $Shortcut.Save()
+
+        # Set "Run as administrator" flag by modifying the shortcut file bytes
+        $bytes = [System.IO.File]::ReadAllBytes($ShortcutPath)
+        # Byte 21 (0x15) contains the flags. Setting bit 5 (0x20) enables "Run as administrator"
+        $bytes[0x15] = $bytes[0x15] -bor 0x20
+        [System.IO.File]::WriteAllBytes($ShortcutPath, $bytes)
+
+        Write-Log -Level 'SUCCESS' "Shortcut created with 'Run as administrator' enabled."
+        return $true
+    }
+    catch {
+        Write-Log -Level 'ERROR' "Failed to create shortcut: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# Function to manage auto-start via Registry Run key
+function Manage-AutoStart {
     param(
         [Parameter(Mandatory = $true)]
         [ValidateSet('Remove', 'Create')]
         [string]$Action,
-        [string]$ExecutablePath
+        [string]$ShortcutPath
     )
 
     switch ($Action) {
         'Remove' {
-            Invoke-Quietly "Removing existing scheduled task..." {
-                Unregister-ScheduledTask -TaskName $AppName -Confirm:$false -ErrorAction SilentlyContinue
-            } | Out-Null
-        }
-        'Create' {
-            Write-Log -Level 'INFO' "Creating startup task..."
-
             try {
-                # Define the action (what program to run and its working directory)
-                $taskAction = New-ScheduledTaskAction -Execute $ExecutablePath -WorkingDirectory $InstallDir
+                # Remove from registry
+                Remove-ItemProperty -Path $RegistryRunKey -Name $AppName -ErrorAction SilentlyContinue
 
-                # Define the trigger (when to run it)
-                $taskTrigger = New-ScheduledTaskTrigger -AtStartup
+                # Remove old scheduled task if it exists (for migration from old version)
+                Unregister-ScheduledTask -TaskName $AppName -Confirm:$false -ErrorAction SilentlyContinue
 
-                # Define the user and permissions (run as SYSTEM with highest privileges)
-                $taskPrincipal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+                # Remove shortcut if it exists
+                if (Test-Path $StartupShortcutPath) {
+                    Remove-Item $StartupShortcutPath -Force -ErrorAction SilentlyContinue
+                }
 
-                # Define settings (allow it to run indefinitely)
-                $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0
-
-                # Register the task with the system
-                Register-ScheduledTask -TaskName $AppName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Runs the Deadlock API Ingest application on system startup." | Out-Null
-
-                Write-Log -Level 'SUCCESS' "Startup task created successfully."
+                Write-Log -Level 'INFO' "Auto-start removed from registry."
             }
             catch {
-                Handle-FatalError -ErrorMessage "Failed to create startup task." -DetailedError "Error: $($_.Exception.Message)`n`nThis could be due to:`n- Insufficient permissions`n- Task Scheduler service not running`n- Conflicting task name`n- System policy restrictions"
+                Write-Log -Level 'WARN' "Failed to remove auto-start: $($_.Exception.Message)"
             }
         }
+        'Create' {
+            Write-Log -Level 'INFO' "Setting up auto-start via registry..."
+
+            try {
+                # Create shortcut with "Run as administrator" enabled
+                if (-not (New-StartupShortcut -TargetPath $ShortcutPath -ShortcutPath $StartupShortcutPath)) {
+                    Handle-FatalError -ErrorMessage "Failed to create startup shortcut." -DetailedError "The shortcut is required for auto-start with administrator privileges."
+                }
+
+                # Add to registry Run key
+                Set-ItemProperty -Path $RegistryRunKey -Name $AppName -Value "`"$StartupShortcutPath`"" -Type String
+
+                Write-Log -Level 'SUCCESS' "Auto-start configured successfully in registry."
+                Write-Log -Level 'INFO' "The application will appear in Task Manager's Startup tab."
+            }
+            catch {
+                Handle-FatalError -ErrorMessage "Failed to configure auto-start." -DetailedError "Error: $($_.Exception.Message)`n`nThis could be due to:`n- Insufficient permissions`n- Registry access denied`n- System policy restrictions"
+            }
+        }
+    }
+}
+
+# Function to create a desktop shortcut
+function New-DesktopShortcut {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetPath
+    )
+
+    try {
+        $DesktopPath = [Environment]::GetFolderPath("Desktop")
+        $DesktopShortcutPath = Join-Path -Path $DesktopPath -ChildPath "${AppName}.lnk"
+
+        $WScriptShell = New-Object -ComObject WScript.Shell
+        $Shortcut = $WScriptShell.CreateShortcut($DesktopShortcutPath)
+        $Shortcut.TargetPath = $TargetPath
+        $Shortcut.WorkingDirectory = $InstallDir
+        $Shortcut.Description = "Deadlock API Ingest"
+        $Shortcut.Save()
+
+        # Set "Run as administrator" flag
+        $bytes = [System.IO.File]::ReadAllBytes($DesktopShortcutPath)
+        $bytes[0x15] = $bytes[0x15] -bor 0x20
+        [System.IO.File]::WriteAllBytes($DesktopShortcutPath, $bytes)
+
+        Write-Log -Level 'SUCCESS' "Desktop shortcut created at: $DesktopShortcutPath"
+        return $true
+    }
+    catch {
+        Write-Log -Level 'ERROR' "Failed to create desktop shortcut: $($_.Exception.Message)"
+        $script:HasErrors = $true
+        $script:ErrorDetails += "Desktop shortcut creation failed (non-critical)"
+        return $false
     }
 }
 
@@ -374,9 +452,9 @@ try {
     Test-IsAdmin
     $release = Get-LatestRelease
 
-    # Remove any old scheduled tasks (both main and update)
-    Invoke-Quietly "Removing existing scheduled tasks..." {
-        Manage-StartupTask -Action 'Remove'
+    # Remove any old auto-start entries and scheduled tasks
+    Invoke-Quietly "Removing existing auto-start entries..." {
+        Manage-AutoStart -Action 'Remove'
         Manage-UpdateTask -Action 'Remove'
     } -ContinueOnError | Out-Null
 
@@ -510,26 +588,44 @@ try {
 
     if ($enableAutoStart) {
         Write-Log -Level 'INFO' "User chose to enable auto-start."
-        # Create the main scheduled task
-        Manage-StartupTask -Action 'Create' -ExecutablePath $downloadPath
+        # Create auto-start via registry
+        Manage-AutoStart -Action 'Create' -ShortcutPath $downloadPath
 
-        # Start the main task
+        # Start the application immediately in background (no window)
         try {
-            Start-ScheduledTask -TaskName $AppName
-            Write-Log -Level 'SUCCESS' "Application started successfully with auto-start enabled."
+            $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+            $startInfo.FileName = $downloadPath
+            $startInfo.WorkingDirectory = $InstallDir
+            $startInfo.Verb = "runas"  # Run as administrator
+            $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+            $startInfo.CreateNoWindow = $true
+
+            $process = New-Object System.Diagnostics.Process
+            $process.StartInfo = $startInfo
+            $process.Start() | Out-Null
+
+            Write-Log -Level 'SUCCESS' "Application started successfully in background with auto-start enabled."
         }
         catch {
-            $errorMsg = "Failed to start the application task."
-            $detailedError = "Error: $($_.Exception.Message)`n`nThe application was installed but failed to start automatically. You can start it manually using:`nStart-ScheduledTask -TaskName $AppName"
+            $errorMsg = "Failed to start the application."
+            $detailedError = "Error: $($_.Exception.Message)`n`nThe application was installed but failed to start automatically. You can start it manually by running the shortcut at:`n$StartupShortcutPath"
             Write-Log -Level 'ERROR' $errorMsg
-            Write-Log -Level 'WARN' "Continuing installation - you can start the task manually later."
+            Write-Log -Level 'WARN' "Continuing installation - you can start the application manually later."
             $script:HasErrors = $true
-            $script:ErrorDetails += "Task start failed (non-critical)"
+            $script:ErrorDetails += "Application start failed (non-critical)"
         }
     } else {
         Write-Log -Level 'INFO' "User chose to skip auto-start."
         Write-Host "Auto-start will not be enabled." -ForegroundColor Yellow
-        Write-Host "You can manually start the application using: Start-ScheduledTask -TaskName $AppName" -ForegroundColor White
+        Write-Host ""
+
+        # Create desktop shortcut when auto-start is disabled
+        Write-Log -Level 'INFO' "Creating desktop shortcut for manual launch..."
+        if (New-DesktopShortcut -TargetPath $downloadPath) {
+            Write-Host "A desktop shortcut has been created for easy access." -ForegroundColor Green
+        }
+
+        Write-Host "You can manually start the application using the desktop shortcut." -ForegroundColor White
         Write-Host "To enable auto-start later, re-run this installer." -ForegroundColor White
         Write-Host ""
     }
@@ -630,11 +726,12 @@ if (-not $script:HasErrors) {
     # Check if auto-start is enabled
     $autoStartEnabled = $false
     try {
-        $task = Get-ScheduledTask -TaskName $AppName -ErrorAction SilentlyContinue
-        if ($task) {
+        $regValue = Get-ItemProperty -Path $RegistryRunKey -Name $AppName -ErrorAction SilentlyContinue
+        if ($regValue) {
             $autoStartEnabled = $true
             Write-Host "[+] Auto-start is enabled" -ForegroundColor Green
-            Write-Host "    The application will start automatically every time the computer boots up." -ForegroundColor White
+            Write-Host "    The application will start automatically every time you log in." -ForegroundColor White
+            Write-Host "    You can see it in Task Manager's Startup tab." -ForegroundColor White
         } else {
             Write-Host "[-] Auto-start is disabled" -ForegroundColor Yellow
             Write-Host "    The application will not start automatically on system boot." -ForegroundColor White
@@ -647,11 +744,10 @@ if (-not $script:HasErrors) {
     Write-Host " "
 
     if ($autoStartEnabled) {
-        Write-Host "You can manage the main task via the Task Scheduler (taskschd.msc) or PowerShell:" -ForegroundColor White
-        Write-Host "  - Check status:  Get-ScheduledTask -TaskName $AppName | Get-ScheduledTaskInfo" -ForegroundColor Yellow
-        Write-Host "  - Run manually:  Start-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
-        Write-Host "  - Stop it:       Stop-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
-        Write-Host "  - Disable auto-start: Unregister-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
+        Write-Host "You can manage auto-start via Task Manager or PowerShell:" -ForegroundColor White
+        Write-Host "  - View in Task Manager: Open Task Manager > Startup tab > Look for '$AppName'" -ForegroundColor Yellow
+        Write-Host "  - Run manually: Start-Process -FilePath '$StartupShortcutPath' -Verb RunAs" -ForegroundColor Yellow
+        Write-Host "  - Disable auto-start: Remove-ItemProperty -Path '$RegistryRunKey' -Name '$AppName'" -ForegroundColor Yellow
         Write-Host " "
     }
 
