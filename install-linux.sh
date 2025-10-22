@@ -500,6 +500,50 @@ prompt_for_updater() {
     return 0
 }
 
+# Function to prompt user for auto-start setup
+prompt_for_autostart() {
+    # Check if we're running in an interactive terminal
+    if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then
+        log "INFO" "Non-interactive mode detected. Enabling auto-start by default."
+        return 0
+    fi
+
+    log "INFO" "Auto-start will automatically start the service when the system boots."
+    log "INFO" "This ensures the application is always running in the background."
+    echo >&2
+
+    local attempts=0
+    local max_attempts=2
+
+    while [[ $attempts -lt $max_attempts ]]; do
+        echo -n "Would you like to enable auto-start on system boot? (y/n): " >&2
+
+        local response
+        if read -t 10 -r response; then
+            case "${response,,}" in
+                y|yes)
+                    return 0
+                    ;;
+                n|no)
+                    return 1
+                    ;;
+                *)
+                    attempts=$((attempts + 1))
+                    if [[ $attempts -lt $max_attempts ]]; then
+                        echo "Invalid response. Please enter 'y' for yes or 'n' for no." >&2
+                    fi
+                    ;;
+            esac
+        else
+            log "INFO" "No response received within 10 seconds. Enabling auto-start by default."
+            return 0
+        fi
+    done
+
+    log "INFO" "Maximum attempts reached. Enabling auto-start by default."
+    return 0
+}
+
 # --- Main Installation Logic ---
 main() {
     log "INFO" "Starting Deadlock API Ingest installation..."
@@ -544,9 +588,17 @@ main() {
     # Create configuration file
     create_config_file
 
-    # Create and start main service
+    # Create the main service (but don't enable/start it yet)
     manage_service "create" "$final_executable_path"
-    manage_service "start"
+
+    # Prompt user for auto-start setup
+    if prompt_for_autostart; then
+        manage_service "start"
+        log "SUCCESS" "Auto-start enabled. The service will start automatically on system boot."
+    else
+        log "INFO" "Auto-start disabled. You can start the service manually with: systemctl start $SERVICE_NAME"
+        log "INFO" "To enable auto-start later, run: systemctl enable $SERVICE_NAME"
+    fi
 
     # Prompt user for automatic updater setup
     if prompt_for_updater; then
@@ -573,11 +625,23 @@ main() {
             echo -e "${GREEN}Installation complete.${NC}"
         fi
         echo
+
+        if systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
+            echo -e "${GREEN}[+] Auto-start is enabled${NC} - The service will start automatically on system boot."
+        else
+            echo -e "${YELLOW}[-] Auto-start is disabled${NC} - The service will not start automatically on system boot."
+            echo -e "  To enable auto-start: ${YELLOW}systemctl enable $SERVICE_NAME${NC}"
+        fi
+        echo
+
         echo -e "You can manage the main service with the following commands:"
         echo -e "  - Check status:  ${YELLOW}systemctl status $SERVICE_NAME${NC}"
         echo -e "  - View logs:     ${YELLOW}journalctl -u $SERVICE_NAME -f${NC}"
         echo -e "  - Stop service:  ${YELLOW}systemctl stop $SERVICE_NAME${NC}"
         echo -e "  - Start service: ${YELLOW}systemctl start $SERVICE_NAME${NC}"
+        if ! systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
+            echo -e "  - Enable auto-start: ${YELLOW}systemctl enable $SERVICE_NAME${NC}"
+        fi
         echo
 
         if systemctl is-enabled --quiet "$UPDATE_TIMER_NAME.timer" 2>/dev/null; then

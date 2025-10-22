@@ -437,21 +437,101 @@ try {
 
     Write-Log -Level 'INFO' "Installing application..."
 
-    # Create the main scheduled task
-    Manage-StartupTask -Action 'Create' -ExecutablePath $downloadPath
+    # Ask user if they want auto-start
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "      AUTO-START SETUP (OPTIONAL)      " -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Auto-start will automatically start the application when the system boots." -ForegroundColor White
+    Write-Host "This ensures the application is always running in the background." -ForegroundColor White
+    Write-Host ""
+    Write-Host "Enable auto-start on system boot? (Y/N): " -ForegroundColor Yellow -NoNewline
 
-    # Start the main task
-    try {
-        Start-ScheduledTask -TaskName $AppName
-        Write-Log -Level 'SUCCESS' "Application started successfully."
+    $enableAutoStart = $false
+    $autoStartAttempts = 0
+    $maxAutoStartAttempts = 2
+
+    # Check if running in interactive mode
+    $isInteractive = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
+
+    if (-not $isInteractive) {
+        Write-Host "Y (default in non-interactive mode)" -ForegroundColor Cyan
+        Write-Log -Level 'INFO' "Non-interactive mode detected. Enabling auto-start by default."
+        $enableAutoStart = $true
+    } else {
+        # Try to read with timeout
+        $timeoutSeconds = 10
+        $startTime = Get-Date
+        $keyPressed = $false
+
+        while ($autoStartAttempts -lt $maxAutoStartAttempts -and -not $keyPressed) {
+            if ([Console]::KeyAvailable) {
+                $response = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                $key = $response.Character.ToString().ToUpper()
+
+                if ($key -eq "Y" -or $key -eq "N") {
+                    Write-Host $key -ForegroundColor Cyan
+                    if ($key -eq "Y") {
+                        $enableAutoStart = $true
+                    }
+                    $keyPressed = $true
+                    break
+                } else {
+                    $autoStartAttempts++
+                    if ($autoStartAttempts -lt $maxAutoStartAttempts) {
+                        Write-Host ""
+                        Write-Host "Invalid response. Please enter 'Y' for yes or 'N' for no." -ForegroundColor Yellow
+                        Write-Host "Enable auto-start on system boot? (Y/N): " -ForegroundColor Yellow -NoNewline
+                    }
+                }
+            }
+
+            # Check timeout
+            if (((Get-Date) - $startTime).TotalSeconds -ge $timeoutSeconds -and -not $keyPressed) {
+                Write-Host "Y (timeout - defaulting to yes)" -ForegroundColor Cyan
+                Write-Log -Level 'INFO' "No response received within $timeoutSeconds seconds. Enabling auto-start by default."
+                $enableAutoStart = $true
+                $keyPressed = $true
+                break
+            }
+
+            Start-Sleep -Milliseconds 100
+        }
+
+        if (-not $keyPressed) {
+            Write-Host "Y (max attempts reached - defaulting to yes)" -ForegroundColor Cyan
+            Write-Log -Level 'INFO' "Maximum attempts reached. Enabling auto-start by default."
+            $enableAutoStart = $true
+        }
     }
-    catch {
-        $errorMsg = "Failed to start the application task."
-        $detailedError = "Error: $($_.Exception.Message)`n`nThe application was installed but failed to start automatically. You can start it manually using:`nStart-ScheduledTask -TaskName $AppName"
-        Write-Log -Level 'ERROR' $errorMsg
-        Write-Log -Level 'WARN' "Continuing installation - you can start the task manually later."
-        $script:HasErrors = $true
-        $script:ErrorDetails += "Task start failed (non-critical)"
+
+    Write-Host ""
+
+    if ($enableAutoStart) {
+        Write-Log -Level 'INFO' "User chose to enable auto-start."
+        # Create the main scheduled task
+        Manage-StartupTask -Action 'Create' -ExecutablePath $downloadPath
+
+        # Start the main task
+        try {
+            Start-ScheduledTask -TaskName $AppName
+            Write-Log -Level 'SUCCESS' "Application started successfully with auto-start enabled."
+        }
+        catch {
+            $errorMsg = "Failed to start the application task."
+            $detailedError = "Error: $($_.Exception.Message)`n`nThe application was installed but failed to start automatically. You can start it manually using:`nStart-ScheduledTask -TaskName $AppName"
+            Write-Log -Level 'ERROR' $errorMsg
+            Write-Log -Level 'WARN' "Continuing installation - you can start the task manually later."
+            $script:HasErrors = $true
+            $script:ErrorDetails += "Task start failed (non-critical)"
+        }
+    } else {
+        Write-Log -Level 'INFO' "User chose to skip auto-start."
+        Write-Host "Auto-start will not be enabled." -ForegroundColor Yellow
+        Write-Host "You can manually start the application using: Start-ScheduledTask -TaskName $AppName" -ForegroundColor White
+        Write-Host "To enable auto-start later, re-run this installer." -ForegroundColor White
+        Write-Host ""
     }
 
     # Ask user if they want automatic updates
@@ -460,26 +540,64 @@ try {
     Write-Host "     AUTOMATIC UPDATES (OPTIONAL)      " -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "The main application has been installed and started successfully!" -ForegroundColor Green
-    Write-Host ""
     Write-Host "Would you like to enable automatic updates?" -ForegroundColor Yellow
     Write-Host "This will create a scheduled task that checks for updates daily at 3 AM." -ForegroundColor White
     Write-Host ""
     Write-Host "Enable automatic updates? (Y/N): " -ForegroundColor Yellow -NoNewline
 
     $installUpdater = $false
-    do {
-        $response = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-        $key = $response.Character.ToString().ToUpper()
+    $updaterAttempts = 0
+    $maxUpdaterAttempts = 2
 
-        if ($key -eq "Y" -or $key -eq "N") {
-            Write-Host $key -ForegroundColor Cyan
-            if ($key -eq "Y") {
-                $installUpdater = $true
+    if (-not $isInteractive) {
+        Write-Host "Y (default in non-interactive mode)" -ForegroundColor Cyan
+        Write-Log -Level 'INFO' "Non-interactive mode detected. Installing automatic updater by default."
+        $installUpdater = $true
+    } else {
+        # Try to read with timeout
+        $startTime = Get-Date
+        $keyPressed = $false
+
+        while ($updaterAttempts -lt $maxUpdaterAttempts -and -not $keyPressed) {
+            if ([Console]::KeyAvailable) {
+                $response = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                $key = $response.Character.ToString().ToUpper()
+
+                if ($key -eq "Y" -or $key -eq "N") {
+                    Write-Host $key -ForegroundColor Cyan
+                    if ($key -eq "Y") {
+                        $installUpdater = $true
+                    }
+                    $keyPressed = $true
+                    break
+                } else {
+                    $updaterAttempts++
+                    if ($updaterAttempts -lt $maxUpdaterAttempts) {
+                        Write-Host ""
+                        Write-Host "Invalid response. Please enter 'Y' for yes or 'N' for no." -ForegroundColor Yellow
+                        Write-Host "Enable automatic updates? (Y/N): " -ForegroundColor Yellow -NoNewline
+                    }
+                }
             }
-            break
+
+            # Check timeout
+            if (((Get-Date) - $startTime).TotalSeconds -ge $timeoutSeconds -and -not $keyPressed) {
+                Write-Host "Y (timeout - defaulting to yes)" -ForegroundColor Cyan
+                Write-Log -Level 'INFO' "No response received within $timeoutSeconds seconds. Installing automatic updater by default."
+                $installUpdater = $true
+                $keyPressed = $true
+                break
+            }
+
+            Start-Sleep -Milliseconds 100
         }
-    } while ($true)
+
+        if (-not $keyPressed) {
+            Write-Host "Y (max attempts reached - defaulting to yes)" -ForegroundColor Cyan
+            Write-Log -Level 'INFO' "Maximum attempts reached. Installing automatic updater by default."
+            $installUpdater = $true
+        }
+    }
 
     Write-Host ""
 
@@ -507,24 +625,60 @@ catch {
 # Display final status
 if (-not $script:HasErrors) {
     Write-Host " "
-    Write-Log -Level 'SUCCESS' "Deadlock API Ingest ($($release.Version)) has been installed successfully with automatic updates!"
-    Write-Log -Level 'INFO' "The application will now start automatically every time the computer boots up."
+    Write-Log -Level 'SUCCESS' "Deadlock API Ingest ($($release.Version)) has been installed successfully!"
+
+    # Check if auto-start is enabled
+    $autoStartEnabled = $false
+    try {
+        $task = Get-ScheduledTask -TaskName $AppName -ErrorAction SilentlyContinue
+        if ($task) {
+            $autoStartEnabled = $true
+            Write-Host "[+] Auto-start is enabled" -ForegroundColor Green
+            Write-Host "    The application will start automatically every time the computer boots up." -ForegroundColor White
+        } else {
+            Write-Host "[-] Auto-start is disabled" -ForegroundColor Yellow
+            Write-Host "    The application will not start automatically on system boot." -ForegroundColor White
+            Write-Host "    To enable auto-start later, re-run this installer." -ForegroundColor White
+        }
+    } catch {
+        Write-Host "[?] Auto-start status unknown" -ForegroundColor Yellow
+    }
+
     Write-Host " "
-    Write-Host "You can manage the main task via the Task Scheduler (taskschd.msc) or PowerShell:" -ForegroundColor White
-    Write-Host "  - Check status:  Get-ScheduledTask -TaskName $AppName | Get-ScheduledTaskInfo" -ForegroundColor Yellow
-    Write-Host "  - Run manually:  Start-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
-    Write-Host "  - Stop it:       Stop-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
-    Write-Host " "
-    Write-Host "Automatic update functionality:" -ForegroundColor White
-    Write-Host "  - Update task:   Get-ScheduledTask -TaskName $UpdateTaskName | Get-ScheduledTaskInfo" -ForegroundColor Yellow
-    Write-Host "  - Manual update: Start-ScheduledTask -TaskName $UpdateTaskName" -ForegroundColor Yellow
-    Write-Host "  - Update logs:   Get-Content '$UpdateLogFile'" -ForegroundColor Yellow
-    Write-Host "  - Disable updates: Edit '$ConfigFile' and set AUTO_UPDATE=`"false`"" -ForegroundColor Yellow
-    Write-Host " "
-    Write-Host "Configuration file: $ConfigFile" -ForegroundColor Cyan
-    Write-Host "Version file: $VersionFile" -ForegroundColor Cyan
-    Write-Host "Update logs: $UpdateLogFile" -ForegroundColor Cyan
-    Write-Host " "
+
+    if ($autoStartEnabled) {
+        Write-Host "You can manage the main task via the Task Scheduler (taskschd.msc) or PowerShell:" -ForegroundColor White
+        Write-Host "  - Check status:  Get-ScheduledTask -TaskName $AppName | Get-ScheduledTaskInfo" -ForegroundColor Yellow
+        Write-Host "  - Run manually:  Start-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
+        Write-Host "  - Stop it:       Stop-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
+        Write-Host "  - Disable auto-start: Unregister-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
+        Write-Host " "
+    }
+
+    # Check if automatic updates are enabled
+    $updatesEnabled = $false
+    try {
+        $updateTask = Get-ScheduledTask -TaskName $UpdateTaskName -ErrorAction SilentlyContinue
+        if ($updateTask) {
+            $updatesEnabled = $true
+        }
+    } catch {
+        # Ignore errors
+    }
+
+    if ($updatesEnabled) {
+        Write-Host "Automatic update functionality:" -ForegroundColor White
+        Write-Host "  - Update task:   Get-ScheduledTask -TaskName $UpdateTaskName | Get-ScheduledTaskInfo" -ForegroundColor Yellow
+        Write-Host "  - Manual update: Start-ScheduledTask -TaskName $UpdateTaskName" -ForegroundColor Yellow
+        Write-Host "  - Update logs:   Get-Content '$UpdateLogFile'" -ForegroundColor Yellow
+        Write-Host "  - Disable updates: Edit '$ConfigFile' and set AUTO_UPDATE=`"false`"" -ForegroundColor Yellow
+        Write-Host " "
+        Write-Host "Configuration file: $ConfigFile" -ForegroundColor Cyan
+        Write-Host "Version file: $VersionFile" -ForegroundColor Cyan
+        Write-Host "Update logs: $UpdateLogFile" -ForegroundColor Cyan
+        Write-Host " "
+    }
+
     # --- User-friendly usage explanation ---
     Write-Host "How to use Deadlock API Ingest:" -ForegroundColor Green
     Write-Host "1. Restart your game after installation." -ForegroundColor Cyan
