@@ -379,6 +379,7 @@ StandardError=journal
 SyslogIdentifier=$UPDATE_SERVICE_NAME
 
 # Security Hardening
+ReadWritePaths=/var/log
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
