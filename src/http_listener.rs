@@ -1,7 +1,6 @@
 use crate::error::Error;
 use crate::utils::Salts;
 use memchr::memmem;
-use std::collections::HashSet;
 use std::str;
 
 /// Trait that platform-specific listeners implement. Implementors must provide a payload iterator.
@@ -14,44 +13,20 @@ pub(crate) trait HttpListener {
 
     /// Start listening and process payloads produced by `payloads()`.
     fn listen(&self) -> Result<(), Error> {
-        let mut ingested_metadata = HashSet::new();
-        let mut ingested_replay = HashSet::new();
         for payload in self.payloads()? {
             // Try extract salts from the payload
             let Some(salts) = Self::extract_salts(&payload) else {
                 continue;
             };
 
-            let is_new_metadata =
-                salts.metadata_salt.is_some() && !ingested_metadata.contains(&salts.match_id);
-            let is_new_replay =
-                salts.replay_salt.is_some() && !ingested_replay.contains(&salts.match_id);
-            if !is_new_metadata && !is_new_replay {
+            if salts.metadata_salt.is_none() && salts.replay_salt.is_none() {
                 continue;
             }
 
             // Ingest the Salts
             match salts.ingest() {
                 Ok(..) => println!("Ingested salts: {salts:?}"),
-                Err(e) => {
-                    eprintln!("Failed to ingest salts: {e:?}");
-                    continue;
-                }
-            }
-
-            if salts.metadata_salt.is_some() {
-                ingested_metadata.insert(salts.match_id);
-
-                if ingested_metadata.len() > 1_000 {
-                    ingested_metadata.clear(); // Clear the set if it's too large
-                }
-            }
-            if salts.replay_salt.is_some() {
-                ingested_replay.insert(salts.match_id);
-
-                if ingested_replay.len() > 1_000 {
-                    ingested_replay.clear(); // Clear the set if it's too large
-                }
+                Err(e) => eprintln!("Failed to ingest salts: {e:?}"),
             }
         }
         Ok(())
