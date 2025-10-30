@@ -8,7 +8,6 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-// cache directory is  ~/.steam/steam/appcache/httpcache/ write it so that it is robost across many linux systems
 #[cfg(target_os = "linux")]
 pub(super) fn get_cache_directory() -> Option<PathBuf> {
     let home_dir = std::env::var("HOME").ok()?;
@@ -21,9 +20,9 @@ pub(super) fn get_cache_directory() -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "windows")]
-use winreg::RegKey;
-#[cfg(target_os = "windows")]
 use winreg::enums::HKEY_CURRENT_USER;
+#[cfg(target_os = "windows")]
+use winreg::RegKey;
 
 #[cfg(target_os = "windows")]
 pub(super) fn get_cache_directory() -> Option<PathBuf> {
