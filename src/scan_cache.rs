@@ -22,7 +22,7 @@ use winreg::RegKey;
 use winreg::enums::*;
 #[cfg(target_os = "windows")]
 pub(super) fn get_cache_directory() -> Option<PathBuf> {
-    if let Ok(program_files_x86) = env::var("ProgramFiles(x86)") {
+    if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
         let path = PathBuf::from(program_files_x86)
             .join("Steam")
             .join("appcache")
@@ -32,7 +32,7 @@ pub(super) fn get_cache_directory() -> Option<PathBuf> {
         }
     }
 
-    if let Ok(program_files) = env::var("ProgramFiles") {
+    if let Ok(program_files) = std::env::var("ProgramFiles") {
         let path = PathBuf::from(program_files)
             .join("Steam")
             .join("appcache")
