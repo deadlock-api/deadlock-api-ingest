@@ -81,12 +81,27 @@ impl Salts {
     }
 
     pub(crate) fn ingest_many(salts: &[Salts]) -> Result<(), Error> {
-        HTTP_CLIENT
-            .get_or_init(ureq::Agent::new_with_defaults)
-            .post("https://api.deadlock-api.com/v1/matches/salts")
-            .send_json(salts)
-            .map_err(Error::Ureq)
-            .map(|_| ())
+        let max_retries = 10;
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            println!("Ingesting {n} salts ({attempt}/{max_retries})", n = salts.len());
+            let response = HTTP_CLIENT
+                .get_or_init(ureq::Agent::new_with_defaults)
+                .post("https://api.deadlock-api.com/v1/matches/salts")
+                .send_json(salts);
+            match response {
+                Ok(r) if r.status().is_success() => return Ok(()),
+                Ok(mut resp) if attempt == max_retries => {
+                    let text = resp.body_mut().read_to_string().unwrap_or_default();
+                    return Err(Error::FailedToIngest(text));
+                }
+                Err(e) if attempt == max_retries || matches!(e, StatusCode(s) if s == 400) => {
+                    return Err(Error::Ureq(e));
+                }
+                _ => sleep(Duration::from_secs(3)), // Retry on error
+            }
+        }
     }
 }
 
