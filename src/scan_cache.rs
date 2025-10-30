@@ -20,9 +20,9 @@ pub(super) fn get_cache_directory() -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "windows")]
-use winreg::RegKey;
-#[cfg(target_os = "windows")]
 use winreg::enums::HKEY_CURRENT_USER;
+#[cfg(target_os = "windows")]
+use winreg::RegKey;
 
 #[cfg(target_os = "windows")]
 pub(super) fn get_cache_directory() -> Option<PathBuf> {
@@ -147,7 +147,17 @@ pub(super) fn initial_cache_dir_ingest(cache_dir: &Path) -> Result<(), Error> {
         .into_iter()
         .filter_map(|(_, url)| Salts::from_url(&url))
         .collect::<Vec<_>>();
-    Salts::ingest_many(&salts)
+
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        match Salts::ingest_many(&salts) {
+            Ok(..) => break,
+            Err(e) if attempt == 10 => return Err(e),
+            Err(..) => continue,
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
