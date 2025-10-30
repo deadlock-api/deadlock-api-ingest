@@ -20,9 +20,9 @@ pub(super) fn get_cache_directory() -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "windows")]
-use winreg::enums::HKEY_CURRENT_USER;
-#[cfg(target_os = "windows")]
 use winreg::RegKey;
+#[cfg(target_os = "windows")]
+use winreg::enums::HKEY_CURRENT_USER;
 
 #[cfg(target_os = "windows")]
 pub(super) fn get_cache_directory() -> Option<PathBuf> {
