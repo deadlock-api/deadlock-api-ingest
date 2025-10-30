@@ -127,7 +127,11 @@ fn extract_replay_url(data: &[u8]) -> Option<String> {
                 }
 
                 if let Ok(path) = core::str::from_utf8(&data[start..start + min_end]) {
-                    return Some(format!("http://{host}{path}"));
+                    let url = format!("http://{host}{path}");
+                    // Check for Deadlock
+                    if url.contains("1422450") {
+                        return Some(url);
+                    }
                 }
             }
         }
