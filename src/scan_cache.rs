@@ -48,7 +48,7 @@ pub(super) fn get_cache_directory() -> Option<PathBuf> {
     if let Ok(steam_key) = hkey_current_user.open_subkey("Software\\Valve\\Steam")
         && let Ok(steam_path_str) = steam_key.get_value::<String, _>("SteamPath")
     {
-        let corrected_path = PathBuf::from(steam_path_str.replace('/', "\\"));
+        let corrected_path: PathBuf = PathBuf::from(steam_path_str).components().collect();
         let path = corrected_path.join("appcache").join("httpcache");
         if path.exists() && path.is_dir() {
             return Some(path);
