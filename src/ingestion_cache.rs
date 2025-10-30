@@ -1,3 +1,4 @@
+use crate::utils::Salts;
 use dashmap::DashMap;
 use std::sync::OnceLock;
 
@@ -27,21 +28,18 @@ pub(crate) fn is_ingested(match_id: u64, is_metadata: bool) -> bool {
 
 /// Mark a salt as successfully ingested.
 /// This should only be called after successful ingestion.
-pub(crate) fn mark_ingested(match_id: u64, is_metadata: bool) {
+pub(crate) fn mark_ingested(salt: &Salts) {
     get_cache()
-        .entry(match_id)
+        .entry(salt.match_id)
         .and_modify(|entry| {
-            if is_metadata {
+            if salt.metadata_salt.is_some() {
                 entry.0 = true;
-            } else {
+            }
+            if salt.replay_salt.is_some() {
                 entry.1 = true;
             }
         })
-        .or_insert(if is_metadata {
-            (true, false)
-        } else {
-            (false, true)
-        });
+        .or_insert((salt.metadata_salt.is_some(), salt.replay_salt.is_some()));
 
     // Prevent unbounded growth - clear cache if it gets too large
     let cache = get_cache();
@@ -63,12 +61,22 @@ mod tests {
         assert!(!is_ingested(match_id, false));
 
         // Mark metadata as ingested
-        mark_ingested(match_id, true);
+        mark_ingested(&Salts {
+            match_id,
+            cluster_id: 0,
+            metadata_salt: Some(0),
+            replay_salt: None,
+        });
         assert!(is_ingested(match_id, true));
         assert!(!is_ingested(match_id, false));
 
         // Mark replay as ingested
-        mark_ingested(match_id, false);
+        mark_ingested(&Salts {
+            match_id,
+            cluster_id: 0,
+            metadata_salt: None,
+            replay_salt: Some(0),
+        });
         assert!(is_ingested(match_id, true));
         assert!(is_ingested(match_id, false));
     }

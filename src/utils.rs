@@ -10,7 +10,7 @@ static HTTP_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct Salts {
     pub(super) match_id: u64,
-    cluster_id: u32,
+    pub(super) cluster_id: u32,
     pub(super) metadata_salt: Option<u32>,
     pub(super) replay_salt: Option<u32>,
 }

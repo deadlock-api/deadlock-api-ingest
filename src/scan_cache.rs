@@ -153,12 +153,7 @@ pub(super) fn initial_cache_dir_ingest(cache_dir: &Path) {
         Ok(..) => {
             // Mark all salts as successfully ingested in the shared cache
             for salt in &salts {
-                if salt.metadata_salt.is_some() {
-                    ingestion_cache::mark_ingested(salt.match_id, true);
-                }
-                if salt.replay_salt.is_some() {
-                    ingestion_cache::mark_ingested(salt.match_id, false);
-                }
+                ingestion_cache::mark_ingested(salt);
             }
         }
         Err(e) => eprintln!("Failed to ingest salts: {e:?}"),
@@ -195,13 +190,7 @@ pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
                 match salts.ingest() {
                     Ok(..) => {
                         println!("Ingested salts: {salts:?}");
-                        // Mark as ingested in the shared cache only on success
-                        if salts.metadata_salt.is_some() {
-                            ingestion_cache::mark_ingested(salts.match_id, true);
-                        }
-                        if salts.replay_salt.is_some() {
-                            ingestion_cache::mark_ingested(salts.match_id, false);
-                        }
+                        ingestion_cache::mark_ingested(&salts);
                     }
                     Err(e) => eprintln!("Failed to ingest salts: {e:?}"),
                 }

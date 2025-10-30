@@ -33,13 +33,7 @@ pub(crate) trait HttpListener {
             match salts.ingest() {
                 Ok(..) => {
                     println!("Ingested salts: {salts:?}");
-                    // Mark as ingested in the shared cache only on success
-                    if salts.metadata_salt.is_some() {
-                        ingestion_cache::mark_ingested(salts.match_id, true);
-                    }
-                    if salts.replay_salt.is_some() {
-                        ingestion_cache::mark_ingested(salts.match_id, false);
-                    }
+                    ingestion_cache::mark_ingested(&salts);
                 }
                 Err(e) => eprintln!("Failed to ingest salts: {e:?}"),
             }
