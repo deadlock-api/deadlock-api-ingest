@@ -127,7 +127,10 @@ impl HttpListener for PlatformListener {
         cap.add_filter(pktmon::filter::PktMonFilter {
             name: "HTTP Filter".to_string(),
             port: 80.into(),
-            transport_protocol: Some(pktmon::filter::TransportProtocol::TCP),
+            transport_protocol: Some(pktmon::filter::TransportProtocol::FilteredTCP(vec![
+                pktmon::filter::TCPFlag::PSH,
+                pktmon::filter::TCPFlag::ACK,
+            ])),
             ..Default::default()
         })
         .map_err(Error::PktMon)?;
