@@ -45,7 +45,8 @@ fn main() {
         }));
     }
 
-    if let Some(handle) = handles.into_iter().next() {
+    #[allow(clippy::never_loop)]
+    for handle in handles {
         handle.join().unwrap();
     }
 }
