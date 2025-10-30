@@ -11,6 +11,7 @@ ureq = { version = "3.1.2", default-features = false, features = ["json", "rustl
 memchr = "2.7.6"
 notify = "8.2.0"
 serde = { version = "1.0.228", features = ["derive"] }
+dashmap = "6.1.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.55.0"
