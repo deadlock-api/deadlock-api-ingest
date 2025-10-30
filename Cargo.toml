@@ -7,10 +7,13 @@ license = "MIT"
 edition = "2024"
 
 [dependencies]
-ureq = { version = "3.1.2", default-features = false, features = ["rustls"] }
+ureq = { version = "3.1.2", default-features = false, features = ["json", "rustls"] }
 memchr = "2.7.6"
+notify = "8.2.0"
+serde = { version = "1.0.228", features = ["derive"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+winreg = "0.55.0"
 pktmon = "0.6.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
