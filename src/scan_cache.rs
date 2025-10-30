@@ -1,4 +1,3 @@
-use crate::error::Error;
 use crate::ingestion_cache;
 use crate::utils::Salts;
 use memchr::{memchr, memmem};
@@ -137,7 +136,7 @@ fn extract_replay_url(data: &[u8]) -> Option<String> {
     None
 }
 
-pub(super) fn initial_cache_dir_ingest(cache_dir: &Path) -> Result<(), Error> {
+pub(super) fn initial_cache_dir_ingest(cache_dir: &Path) {
     println!("Scanning cache directory: {}", cache_dir.display());
     let mut results = Vec::new();
     scan_directory(cache_dir, &mut results);
@@ -147,7 +146,7 @@ pub(super) fn initial_cache_dir_ingest(cache_dir: &Path) -> Result<(), Error> {
         .collect::<Vec<_>>();
 
     if salts.is_empty() {
-        return Ok(());
+        return;
     }
 
     match Salts::ingest_many(&salts) {
@@ -164,7 +163,6 @@ pub(super) fn initial_cache_dir_ingest(cache_dir: &Path) -> Result<(), Error> {
         }
         Err(e) => eprintln!("Failed to ingest salts: {e:?}"),
     }
-    Ok(())
 }
 
 pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
