@@ -19,9 +19,10 @@ pub(super) fn get_cache_directory() -> Option<PathBuf> {
 #[cfg(target_os = "windows")]
 use winreg::RegKey;
 #[cfg(target_os = "windows")]
-use winreg::enums::*;
+use winreg::enums::HKEY_CURRENT_USER;
+
 #[cfg(target_os = "windows")]
-pub(super) fn get_cache_directory() -> Option<PathBuf> {
+pub(super) fn get_cache_directory2() -> Option<PathBuf> {
     if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
         let path = PathBuf::from(program_files_x86)
             .join("Steam")
@@ -43,13 +44,13 @@ pub(super) fn get_cache_directory() -> Option<PathBuf> {
     }
 
     let hkey_current_user = RegKey::predef(HKEY_CURRENT_USER);
-    if let Ok(steam_key) = hkey_current_user.open_subkey("Software\\Valve\\Steam") {
-        if let Ok(steam_path_str) = steam_key.get_value::<String, _>("SteamPath") {
-            let corrected_path = PathBuf::from(steam_path_str.replace("/", "\\"));
-            let path = corrected_path.join("appcache").join("httpcache");
-            if path.exists() && path.is_dir() {
-                return Some(path);
-            }
+    if let Ok(steam_key) = hkey_current_user.open_subkey("Software\\Valve\\Steam")
+        && let Ok(steam_path_str) = steam_key.get_value::<String, _>("SteamPath")
+    {
+        let corrected_path = PathBuf::from(steam_path_str.replace('/', "\\"));
+        let path = corrected_path.join("appcache").join("httpcache");
+        if path.exists() && path.is_dir() {
+            return Some(path);
         }
     }
 
