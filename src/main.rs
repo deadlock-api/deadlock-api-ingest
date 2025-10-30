@@ -14,6 +14,7 @@ use crate::http_listener::{HttpListener, PlatformListener};
 
 mod error;
 mod http_listener;
+mod ingestion_cache;
 mod scan_cache;
 mod utils;
 

@@ -1,4 +1,5 @@
 use crate::error::Error;
+use crate::ingestion_cache;
 use crate::utils::Salts;
 use memchr::{memchr, memmem};
 use notify::event::CreateKind;
@@ -152,7 +153,18 @@ pub(super) fn initial_cache_dir_ingest(cache_dir: &Path) -> Result<(), Error> {
     loop {
         attempt += 1;
         match Salts::ingest_many(&salts) {
-            Ok(..) => break,
+            Ok(..) => {
+                // Mark all salts as successfully ingested in the shared cache
+                for salt in &salts {
+                    if salt.metadata_salt.is_some() {
+                        ingestion_cache::mark_ingested(salt.match_id, true);
+                    }
+                    if salt.replay_salt.is_some() {
+                        ingestion_cache::mark_ingested(salt.match_id, false);
+                    }
+                }
+                break;
+            }
             Err(e) if attempt == 10 => return Err(e),
             Err(..) => std::thread::sleep(core::time::Duration::from_secs(3)),
         }
@@ -177,8 +189,27 @@ pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
             if let Some(url) = scan_file(&path)
                 && let Some(salts) = Salts::from_url(&url)
             {
+                // Check if we've already ingested this salt using the shared cache
+                let is_new_metadata = salts.metadata_salt.is_some()
+                    && !ingestion_cache::is_ingested(salts.match_id, true);
+                let is_new_replay = salts.replay_salt.is_some()
+                    && !ingestion_cache::is_ingested(salts.match_id, false);
+
+                if !is_new_metadata && !is_new_replay {
+                    continue;
+                }
+
                 match salts.ingest() {
-                    Ok(..) => println!("Ingested salts: {salts:?}"),
+                    Ok(..) => {
+                        println!("Ingested salts: {salts:?}");
+                        // Mark as ingested in the shared cache only on success
+                        if salts.metadata_salt.is_some() {
+                            ingestion_cache::mark_ingested(salts.match_id, true);
+                        }
+                        if salts.replay_salt.is_some() {
+                            ingestion_cache::mark_ingested(salts.match_id, false);
+                        }
+                    }
                     Err(e) => eprintln!("Failed to ingest salts: {e:?}"),
                 }
             }
