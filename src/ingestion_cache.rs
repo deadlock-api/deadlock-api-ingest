@@ -6,15 +6,10 @@ use std::sync::OnceLock;
 /// Key is the `match_id`, value is a tuple of `(has_metadata, has_replay)`.
 static INGESTION_CACHE: OnceLock<DashMap<u64, (bool, bool)>> = OnceLock::new();
 
-/// Get or initialize the global ingestion cache.
-fn get_cache() -> &'static DashMap<u64, (bool, bool)> {
-    INGESTION_CACHE.get_or_init(DashMap::new)
-}
-
 /// Check if a salt has already been ingested.
 /// Returns true if the specific salt type (metadata or replay) has been ingested for this `match_id`.
 pub(crate) fn is_ingested(match_id: u64, is_metadata: bool) -> bool {
-    if let Some(entry) = get_cache().get(&match_id) {
+    if let Some(entry) = INGESTION_CACHE.get_or_init(DashMap::new).get(&match_id) {
         let (has_metadata, has_replay) = *entry;
         if is_metadata {
             has_metadata
@@ -29,7 +24,8 @@ pub(crate) fn is_ingested(match_id: u64, is_metadata: bool) -> bool {
 /// Mark a salt as successfully ingested.
 /// This should only be called after successful ingestion.
 pub(crate) fn mark_ingested(salt: &Salts) {
-    get_cache()
+    INGESTION_CACHE
+        .get_or_init(DashMap::new)
         .entry(salt.match_id)
         .and_modify(|entry| {
             if salt.metadata_salt.is_some() {
@@ -42,7 +38,7 @@ pub(crate) fn mark_ingested(salt: &Salts) {
         .or_insert((salt.metadata_salt.is_some(), salt.replay_salt.is_some()));
 
     // Prevent unbounded growth - clear cache if it gets too large
-    let cache = get_cache();
+    let cache = INGESTION_CACHE.get_or_init(DashMap::new);
     if cache.len() > 10_000 {
         cache.clear();
     }
