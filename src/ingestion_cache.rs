@@ -2,7 +2,7 @@ use dashmap::DashMap;
 use std::sync::OnceLock;
 
 /// Global cache to track successfully ingested salts.
-/// Key is the match_id, value is a tuple of (has_metadata, has_replay).
+/// Key is the `match_id`, value is a tuple of `(has_metadata, has_replay)`.
 static INGESTION_CACHE: OnceLock<DashMap<u64, (bool, bool)>> = OnceLock::new();
 
 /// Get or initialize the global ingestion cache.
@@ -11,7 +11,7 @@ fn get_cache() -> &'static DashMap<u64, (bool, bool)> {
 }
 
 /// Check if a salt has already been ingested.
-/// Returns true if the specific salt type (metadata or replay) has been ingested for this match_id.
+/// Returns true if the specific salt type (metadata or replay) has been ingested for this `match_id`.
 pub(crate) fn is_ingested(match_id: u64, is_metadata: bool) -> bool {
     if let Some(entry) = get_cache().get(&match_id) {
         let (has_metadata, has_replay) = *entry;
