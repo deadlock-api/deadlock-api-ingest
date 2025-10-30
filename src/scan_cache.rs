@@ -11,9 +11,12 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
 pub(super) fn get_cache_directory() -> Option<PathBuf> {
     let home_dir = std::env::var("HOME").ok()?;
-    Some(PathBuf::from(format!(
-        "{home_dir}/.steam/steam/appcache/httpcache/"
-    )))
+    let path = PathBuf::from(format!("{home_dir}/.steam/steam/appcache/httpcache/"));
+    if path.exists() && path.is_dir() {
+        return Some(path);
+    }
+
+    None
 }
 
 #[cfg(target_os = "windows")]
@@ -22,7 +25,7 @@ use winreg::RegKey;
 use winreg::enums::HKEY_CURRENT_USER;
 
 #[cfg(target_os = "windows")]
-pub(super) fn get_cache_directory2() -> Option<PathBuf> {
+pub(super) fn get_cache_directory() -> Option<PathBuf> {
     if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
         let path = PathBuf::from(program_files_x86)
             .join("Steam")
