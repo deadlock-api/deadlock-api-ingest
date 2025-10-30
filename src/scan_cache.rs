@@ -20,9 +20,9 @@ pub(super) fn get_cache_directory() -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "windows")]
-use winreg::enums::HKEY_CURRENT_USER;
-#[cfg(target_os = "windows")]
 use winreg::RegKey;
+#[cfg(target_os = "windows")]
+use winreg::enums::HKEY_CURRENT_USER;
 
 #[cfg(target_os = "windows")]
 pub(super) fn get_cache_directory() -> Option<PathBuf> {
@@ -154,7 +154,7 @@ pub(super) fn initial_cache_dir_ingest(cache_dir: &Path) -> Result<(), Error> {
         match Salts::ingest_many(&salts) {
             Ok(..) => break,
             Err(e) if attempt == 10 => return Err(e),
-            Err(..) => continue,
+            Err(..) => std::thread::sleep(core::time::Duration::from_secs(3)),
         }
     }
     Ok(())
