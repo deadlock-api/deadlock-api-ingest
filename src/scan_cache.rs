@@ -148,6 +148,10 @@ pub(super) fn initial_cache_dir_ingest(cache_dir: &Path) -> Result<(), Error> {
         .filter_map(|(_, url)| Salts::from_url(&url))
         .collect::<Vec<_>>();
 
+    if salts.is_empty() {
+        return Ok(());
+    }
+
     let mut attempt = 0;
     loop {
         attempt += 1;
