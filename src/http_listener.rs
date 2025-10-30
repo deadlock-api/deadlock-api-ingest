@@ -41,10 +41,7 @@ pub(crate) trait HttpListener {
                         ingestion_cache::mark_ingested(salts.match_id, false);
                     }
                 }
-                Err(e) => {
-                    eprintln!("Failed to ingest salts: {e:?}");
-                    continue;
-                }
+                Err(e) => eprintln!("Failed to ingest salts: {e:?}"),
             }
         }
         Ok(())
