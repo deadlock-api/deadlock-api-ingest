@@ -20,12 +20,10 @@ pub(super) fn get_cache_directory() -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "windows")]
-use winreg::RegKey;
-#[cfg(target_os = "windows")]
-use winreg::enums::HKEY_CURRENT_USER;
-
-#[cfg(target_os = "windows")]
 pub(super) fn get_cache_directory() -> Option<PathBuf> {
+    use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
+
     if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
         let path = PathBuf::from(program_files_x86)
             .join("Steam")
