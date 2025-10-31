@@ -9,6 +9,29 @@ use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "linux")]
 pub(super) fn get_cache_directory() -> Option<PathBuf> {
+    // If run under sudo, prefer the original user's home (SUDO_USER) instead of root's HOME.
+    if let Ok(sudo_user) = std::env::var("SUDO_USER")
+        && !sudo_user.is_empty()
+        && let Ok(passwd) = fs::read_to_string("/etc/passwd")
+    {
+        for line in passwd.lines() {
+            if !line.starts_with(&format!("{sudo_user}:")) {
+                continue;
+            }
+
+            let fields: Vec<&str> = line.split(':').collect();
+            if fields.len() <= 5 {
+                continue;
+            }
+
+            let home_dir = fields[5];
+            let path = PathBuf::from(format!("{home_dir}/.steam/steam/appcache/httpcache/"));
+            if path.exists() && path.is_dir() {
+                return Some(path);
+            }
+        }
+    }
+
     let home_dir = std::env::var("HOME").ok()?;
     let path = PathBuf::from(format!("{home_dir}/.steam/steam/appcache/httpcache/"));
     if path.exists() && path.is_dir() {
