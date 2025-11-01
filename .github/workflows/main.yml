@@ -139,10 +139,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
-      - name: PSScriptAnalyzer
-        uses: microsoft/psscriptanalyzer-action@v1.0
+      - name: lint
+        uses: devblackops/github-action-psscriptanalyzer@master
         with:
-          path: install-windows.ps1
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
 
   build:
     name: Build
