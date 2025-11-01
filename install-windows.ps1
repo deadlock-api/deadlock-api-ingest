@@ -214,6 +214,41 @@ function Get-UpdateChecker {
     }
 }
 
+# Function to create desktop shortcut
+function New-DesktopShortcut {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ExecutablePath
+    )
+
+    Write-Log -Level 'INFO' "Creating desktop shortcut..."
+
+    try {
+        $WshShell = New-Object -ComObject WScript.Shell
+        $DesktopPath = [Environment]::GetFolderPath("CommonDesktopDirectory")
+        $ShortcutPath = Join-Path -Path $DesktopPath -ChildPath "$AppName.lnk"
+
+        $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
+        $Shortcut.TargetPath = $ExecutablePath
+        $Shortcut.WorkingDirectory = $InstallDir
+        $Shortcut.Description = "Deadlock API Ingest - Network packet analyzer for Deadlock game replay data"
+        $Shortcut.IconLocation = $ExecutablePath
+        $Shortcut.Save()
+
+        Write-Log -Level 'SUCCESS' "Desktop shortcut created at: $ShortcutPath"
+        return $true
+    }
+    catch {
+        $errorMsg = "Failed to create desktop shortcut."
+        $detailedError = "Error: $($_.Exception.Message)`n`nPath: $ShortcutPath`n`nThis is not critical for the main application."
+        Write-Log -Level 'ERROR' $errorMsg
+        Write-Log -Level 'WARN' "Continuing installation without desktop shortcut."
+        $script:HasErrors = $true
+        $script:ErrorDetails += "Desktop shortcut creation failed (non-critical)"
+        return $false
+    }
+}
+
 # Function to manage the Scheduled Task for autostart
 function Manage-StartupTask {
     param(
@@ -529,7 +564,74 @@ try {
     } else {
         Write-Log -Level 'INFO' "User chose to skip auto-start."
         Write-Host "Auto-start will not be enabled." -ForegroundColor Yellow
-        Write-Host "You can manually start the application using: Start-ScheduledTask -TaskName $AppName" -ForegroundColor White
+        Write-Host ""
+
+        # Offer to create a desktop shortcut instead
+        Write-Host "Would you like to create a desktop shortcut instead? (Y/N): " -ForegroundColor Yellow -NoNewline
+
+        $createShortcut = $false
+        $shortcutAttempts = 0
+        $maxShortcutAttempts = 2
+
+        if (-not $isInteractive) {
+            Write-Host "Y (default in non-interactive mode)" -ForegroundColor Cyan
+            Write-Log -Level 'INFO' "Non-interactive mode detected. Creating desktop shortcut by default."
+            $createShortcut = $true
+        } else {
+            # Try to read with timeout
+            $startTime = Get-Date
+            $keyPressed = $false
+
+            while ($shortcutAttempts -lt $maxShortcutAttempts -and -not $keyPressed) {
+                if ([Console]::KeyAvailable) {
+                    $response = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    $key = $response.Character.ToString().ToUpper()
+
+                    if ($key -eq "Y" -or $key -eq "N") {
+                        Write-Host $key -ForegroundColor Cyan
+                        if ($key -eq "Y") {
+                            $createShortcut = $true
+                        }
+                        $keyPressed = $true
+                        break
+                    } else {
+                        $shortcutAttempts++
+                        if ($shortcutAttempts -lt $maxShortcutAttempts) {
+                            Write-Host ""
+                            Write-Host "Invalid response. Please enter 'Y' for yes or 'N' for no." -ForegroundColor Yellow
+                            Write-Host "Would you like to create a desktop shortcut instead? (Y/N): " -ForegroundColor Yellow -NoNewline
+                        }
+                    }
+                }
+
+                # Check timeout
+                if (((Get-Date) - $startTime).TotalSeconds -ge $timeoutSeconds -and -not $keyPressed) {
+                    Write-Host "Y (timeout - defaulting to yes)" -ForegroundColor Cyan
+                    Write-Log -Level 'INFO' "No response received within $timeoutSeconds seconds. Creating desktop shortcut by default."
+                    $createShortcut = $true
+                    $keyPressed = $true
+                    break
+                }
+
+                Start-Sleep -Milliseconds 100
+            }
+
+            if (-not $keyPressed) {
+                Write-Host "Y (max attempts reached - defaulting to yes)" -ForegroundColor Cyan
+                Write-Log -Level 'INFO' "Maximum attempts reached. Creating desktop shortcut by default."
+                $createShortcut = $true
+            }
+        }
+
+        Write-Host ""
+
+        if ($createShortcut) {
+            New-DesktopShortcut -ExecutablePath $downloadPath
+            Write-Host "You can start the application using the desktop shortcut." -ForegroundColor White
+        } else {
+            Write-Host "You can manually start the application by running: $downloadPath" -ForegroundColor White
+        }
+
         Write-Host "To enable auto-start later, re-run this installer." -ForegroundColor White
         Write-Host ""
     }

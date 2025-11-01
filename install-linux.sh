@@ -259,6 +259,67 @@ download_update_checker() {
     log "SUCCESS" "Update checker script installed."
 }
 
+# Function to create desktop shortcut
+create_desktop_shortcut() {
+    local executable_path="$1"
+
+    log "INFO" "Creating desktop shortcut..."
+
+    # Try to find the appropriate desktop directory
+    local desktop_dir=""
+
+    # Check for common desktop directories
+    if [[ -n "${XDG_DATA_DIRS:-}" ]]; then
+        # Try to find a system-wide applications directory
+        for dir in ${XDG_DATA_DIRS//:/ }; do
+            if [[ -d "$dir/applications" ]]; then
+                desktop_dir="$dir/applications"
+                break
+            fi
+        done
+    fi
+
+    # Fallback to common locations
+    if [[ -z "$desktop_dir" ]]; then
+        if [[ -d "/usr/share/applications" ]]; then
+            desktop_dir="/usr/share/applications"
+        elif [[ -d "/usr/local/share/applications" ]]; then
+            desktop_dir="/usr/local/share/applications"
+        fi
+    fi
+
+    if [[ -z "$desktop_dir" ]]; then
+        log "WARN" "Could not find applications directory. Desktop shortcut will not be created."
+        return 1
+    fi
+
+    local desktop_file="$desktop_dir/${APP_NAME}.desktop"
+
+    # Create the .desktop file
+    cat > "$desktop_file" << EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Deadlock API Ingest
+Comment=Network packet analyzer for Deadlock game replay data
+Exec=$executable_path
+Icon=network-workgroup
+Terminal=false
+Categories=Network;System;
+Keywords=deadlock;api;network;packet;
+EOF
+
+    chmod 644 "$desktop_file"
+
+    # Try to update desktop database if available
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "$desktop_dir" 2>> "$LOG_FILE" || true
+    fi
+
+    log "SUCCESS" "Desktop shortcut created at: $desktop_file"
+    return 0
+}
+
 # Function to manage the systemd service
 manage_service() {
     local action="$1"
@@ -599,6 +660,63 @@ main() {
     else
         log "INFO" "Auto-start disabled. You can start the service manually with: systemctl start $SERVICE_NAME"
         log "INFO" "To enable auto-start later, run: systemctl enable $SERVICE_NAME"
+
+        # Offer to create a desktop shortcut instead
+        echo >&2
+        log "INFO" "Would you like to create a desktop shortcut instead?"
+
+        local create_shortcut=false
+        local attempts=0
+        local max_attempts=2
+
+        # Check if we're running in an interactive terminal
+        if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then
+            log "INFO" "Non-interactive mode detected. Creating desktop shortcut by default."
+            create_shortcut=true
+        else
+            while [[ $attempts -lt $max_attempts ]]; do
+                echo -n "Create desktop shortcut? (y/n): " >&2
+
+                local response
+                if read -t 10 -r response; then
+                    case "${response,,}" in
+                        y|yes)
+                            create_shortcut=true
+                            break
+                            ;;
+                        n|no)
+                            create_shortcut=false
+                            break
+                            ;;
+                        *)
+                            attempts=$((attempts + 1))
+                            if [[ $attempts -lt $max_attempts ]]; then
+                                echo "Invalid response. Please enter 'y' for yes or 'n' for no." >&2
+                            fi
+                            ;;
+                    esac
+                else
+                    log "INFO" "No response received within 10 seconds. Creating desktop shortcut by default."
+                    create_shortcut=true
+                    break
+                fi
+            done
+
+            if [[ $attempts -ge $max_attempts ]]; then
+                log "INFO" "Maximum attempts reached. Creating desktop shortcut by default."
+                create_shortcut=true
+            fi
+        fi
+
+        if [[ "$create_shortcut" == true ]]; then
+            if create_desktop_shortcut "$final_executable_path"; then
+                log "INFO" "You can start the application using the desktop shortcut or by running: $final_executable_path"
+            else
+                log "INFO" "You can start the application by running: $final_executable_path"
+            fi
+        else
+            log "INFO" "You can start the application by running: $final_executable_path"
+        fi
     fi
 
     # Prompt user for automatic updater setup
