@@ -53,7 +53,7 @@ function Invoke-FatalError {
     Write-Host "========================================" -ForegroundColor Red
     Write-Host ""
 
-    Write-Log -Level 'ERROR' $ErrorMessage
+    Write-InstallLog -Level 'ERROR' $ErrorMessage
 
     if ($DetailedError) {
         Write-Host "Error Details:" -ForegroundColor Yellow
@@ -113,7 +113,7 @@ function Show-FinalStatus {
 # --- Helper Functions ---
 
 # Function to write to log and console with color
-function Write-Log {
+function Write-InstallLog {
     param(
         [Parameter(Mandatory = $true)]
         [ValidateSet('INFO', 'WARN', 'ERROR', 'SUCCESS')]
@@ -139,7 +139,7 @@ function Invoke-Quietly {
         [switch]$ContinueOnError
     )
 
-    Write-Log -Level 'INFO' $Description
+    Write-InstallLog -Level 'INFO' $Description
 
     try {
         # Capture output and redirect to log file
@@ -149,7 +149,7 @@ function Invoke-Quietly {
     }
     catch {
         $errorMsg = "Command failed: $($_.Exception.Message)"
-        Write-Log -Level 'ERROR' $errorMsg
+        Write-InstallLog -Level 'ERROR' $errorMsg
         Add-Content -Path $LogFile -Value "Error: $($_.Exception.Message)"
         Add-Content -Path $LogFile -Value "Stack Trace: $($_.ScriptStackTrace)"
 
@@ -168,7 +168,7 @@ function Test-IsAdmin {
         if (-not $isAdmin) {
             Invoke-FatalError -ErrorMessage "This script requires Administrator privileges. Please re-run as Administrator." -DetailedError "Right-click on PowerShell and select 'Run as Administrator', then run this script again."
         }
-        Write-Log -Level 'INFO' "Running with Administrator privileges."
+        Write-InstallLog -Level 'INFO' "Running with Administrator privileges."
     }
     catch {
         Invoke-FatalError -ErrorMessage "Failed to check Administrator privileges." -DetailedError $_.Exception.Message
@@ -177,7 +177,7 @@ function Test-IsAdmin {
 
 # Function to get the latest release from GitHub
 function Get-LatestRelease {
-    Write-Log -Level 'INFO' "Fetching latest release from repository: $GithubRepo"
+    Write-InstallLog -Level 'INFO' "Fetching latest release from repository: $GithubRepo"
     $ApiUrl = "https://api.github.com/repos/$GithubRepo/releases/latest"
     try {
         $releaseInfo = Invoke-RestMethod -Uri $ApiUrl -UseBasicParsing
@@ -196,7 +196,7 @@ function Get-LatestRelease {
             $detailedError = "Available assets are: $availableAssets`n`nThe release may not have been built for Windows, or the asset naming convention has changed."
             Invoke-FatalError -ErrorMessage $errorMsg -DetailedError $detailedError
         }
-        Write-Log -Level 'SUCCESS' "Found version: $($releaseInfo.tag_name)"
+        Write-InstallLog -Level 'SUCCESS' "Found version: $($releaseInfo.tag_name)"
         return [PSCustomObject]@{
             Version      = $releaseInfo.tag_name
             DownloadUrl  = $asset.browser_download_url
@@ -210,16 +210,16 @@ function Get-LatestRelease {
 
 # Function to download the update checker script
 function Get-UpdateChecker {
-    Write-Log -Level 'INFO' "Downloading update checker script..."
+    Write-InstallLog -Level 'INFO' "Downloading update checker script..."
 
     $UpdateScriptUrl = "https://raw.githubusercontent.com/$GithubRepo/master/update-checker.ps1"
 
     try {
         Invoke-WebRequest -Uri $UpdateScriptUrl -OutFile $UpdateScriptPath -UseBasicParsing
-        Write-Log -Level 'SUCCESS' "Update checker script installed."
+        Write-InstallLog -Level 'SUCCESS' "Update checker script installed."
     } catch {
-        Write-Log -Level 'ERROR' "Failed to download update checker script."
-        Write-Log -Level 'WARN' "Continuing installation without update checker script."
+        Write-InstallLog -Level 'ERROR' "Failed to download update checker script."
+        Write-InstallLog -Level 'WARN' "Continuing installation without update checker script."
         Add-Content -Path $LogFile -Value "Error details: $($_.Exception.Message)"
         $script:HasErrors = $true
         $script:ErrorDetails += "Update checker download failed (non-critical)"
@@ -252,11 +252,11 @@ function Get-ActualUser {
             }
         }
 
-        Write-Log -Level 'INFO' "Detected user: $actualUser"
+        Write-InstallLog -Level 'INFO' "Detected user: $actualUser"
         return $actualUser
     }
     catch {
-        Write-Log -Level 'WARN' "Could not determine actual user, using current user: $env:USERNAME"
+        Write-InstallLog -Level 'WARN' "Could not determine actual user, using current user: $env:USERNAME"
         return $env:USERNAME
     }
 }
@@ -274,7 +274,7 @@ function New-DesktopShortcut {
         [string]$Description = "Deadlock API Ingest - Network packet analyzer for Deadlock game replay data"
     )
 
-    Write-Log -Level 'INFO' "Creating desktop shortcut: $ShortcutName..."
+    Write-InstallLog -Level 'INFO' "Creating desktop shortcut: $ShortcutName..."
 
     try {
         # Get the actual user (not Administrator)
@@ -306,12 +306,12 @@ function New-DesktopShortcut {
         $Shortcut.IconLocation = $ExecutablePath
         $Shortcut.Save()
 
-        Write-Log -Level 'SUCCESS' "Desktop shortcut created at: $ShortcutPath"
+        Write-InstallLog -Level 'SUCCESS' "Desktop shortcut created at: $ShortcutPath"
         return $true
     }
     catch {
-        Write-Log -Level 'ERROR' "Failed to create desktop shortcut: $ShortcutName"
-        Write-Log -Level 'WARN' "Continuing installation without desktop shortcut."
+        Write-InstallLog -Level 'ERROR' "Failed to create desktop shortcut: $ShortcutName"
+        Write-InstallLog -Level 'WARN' "Continuing installation without desktop shortcut."
         Add-Content -Path $LogFile -Value "Error details: $($_.Exception.Message)"
         $script:HasErrors = $true
         $script:ErrorDetails += "Desktop shortcut creation failed (non-critical)"
@@ -335,7 +335,7 @@ function Set-StartupTask {
             } | Out-Null
         }
         'Create' {
-            Write-Log -Level 'INFO' "Creating startup task..."
+            Write-InstallLog -Level 'INFO' "Creating startup task..."
 
             try {
                 # Define the action (what program to run and its working directory)
@@ -358,7 +358,7 @@ function Set-StartupTask {
                 # Register the task with the system
                 Register-ScheduledTask -TaskName $AppName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Runs the Deadlock API Ingest application on system startup." | Out-Null
 
-                Write-Log -Level 'SUCCESS' "Startup task created successfully."
+                Write-InstallLog -Level 'SUCCESS' "Startup task created successfully."
             }
             catch {
                 Invoke-FatalError -ErrorMessage "Failed to create startup task." -DetailedError "Error: $($_.Exception.Message)`n`nThis could be due to:`n- Insufficient permissions`n- Task Scheduler service not running`n- Conflicting task name`n- System policy restrictions"
@@ -385,7 +385,7 @@ function Set-WatchdogTask {
             } | Out-Null
         }
         'Create' {
-            Write-Log -Level 'INFO' "Creating watchdog task to ensure application stays running..."
+            Write-InstallLog -Level 'INFO' "Creating watchdog task to ensure application stays running..."
 
             try {
                 # Create a PowerShell script that checks if the process is running
@@ -425,11 +425,11 @@ if (-not `$process) {
                 # Register the task with the system
                 Register-ScheduledTask -TaskName $WatchdogTaskName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Monitors and restarts the Deadlock API Ingest application if it stops running." | Out-Null
 
-                Write-Log -Level 'SUCCESS' "Watchdog task created successfully (checks every 30 minutes)."
+                Write-InstallLog -Level 'SUCCESS' "Watchdog task created successfully (checks every 30 minutes)."
             }
             catch {
-                Write-Log -Level 'ERROR' "Failed to create watchdog task: $($_.Exception.Message)"
-                Write-Log -Level 'WARN' "Continuing installation without watchdog task."
+                Write-InstallLog -Level 'ERROR' "Failed to create watchdog task: $($_.Exception.Message)"
+                Write-InstallLog -Level 'WARN' "Continuing installation without watchdog task."
                 $script:HasErrors = $true
                 $script:ErrorDetails += "Watchdog task creation failed (non-critical)"
             }
@@ -452,7 +452,7 @@ function Set-UpdateTask {
             } | Out-Null
         }
         'Create' {
-            Write-Log -Level 'INFO' "Creating automatic update task..."
+            Write-InstallLog -Level 'INFO' "Creating automatic update task..."
 
             try {
                 # Define the action (run PowerShell with the update script)
@@ -471,13 +471,13 @@ function Set-UpdateTask {
                 # Register the task with the system
                 Register-ScheduledTask -TaskName $UpdateTaskName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Daily update checker for Deadlock API Ingest application." | Out-Null
 
-                Write-Log -Level 'SUCCESS' "Automatic updates enabled."
+                Write-InstallLog -Level 'SUCCESS' "Automatic updates enabled."
                 # Log detailed schedule info to file only
                 Add-Content -Path $LogFile -Value "Update task will run daily at 3:00 AM (with up to 30 minute random delay)."
             }
             catch {
-                Write-Log -Level 'ERROR' "Failed to create automatic update task."
-                Write-Log -Level 'WARN' "Continuing installation without automatic updates."
+                Write-InstallLog -Level 'ERROR' "Failed to create automatic update task."
+                Write-InstallLog -Level 'WARN' "Continuing installation without automatic updates."
                 Add-Content -Path $LogFile -Value "Error details: $($_.Exception.Message)"
                 $script:HasErrors = $true
                 $script:ErrorDetails += "Update task creation failed (non-critical)"
@@ -488,7 +488,7 @@ function Set-UpdateTask {
 
 # Function to create configuration file
 function New-ConfigFile {
-    Write-Log -Level 'INFO' "Creating configuration file..."
+    Write-InstallLog -Level 'INFO' "Creating configuration file..."
 
     try {
         $ConfigContent = @"
@@ -513,11 +513,11 @@ UPDATE_LOG_LEVEL="INFO"
 "@
 
         Set-Content -Path $ConfigFile -Value $ConfigContent
-        Write-Log -Level 'SUCCESS' "Configuration file created at $ConfigFile"
+        Write-InstallLog -Level 'SUCCESS' "Configuration file created at $ConfigFile"
     }
     catch {
-        Write-Log -Level 'ERROR' "Failed to create configuration file."
-        Write-Log -Level 'WARN' "Continuing installation without configuration file."
+        Write-InstallLog -Level 'ERROR' "Failed to create configuration file."
+        Write-InstallLog -Level 'WARN' "Continuing installation without configuration file."
         Add-Content -Path $LogFile -Value "Error details: $($_.Exception.Message)"
         $script:HasErrors = $true
         $script:ErrorDetails += "Configuration file creation failed (non-critical)"
@@ -529,13 +529,14 @@ function Set-VersionInfo {
     param($Version)
     try {
         Set-Content -Path $VersionFile -Value $Version
-        Write-Log -Level 'INFO' "Version information stored: $Version"
+        Write-InstallLog -Level 'INFO' "Version information stored: $Version"
     }
     catch {
-        $errorMsg = "Failed to store version information."
-        $detailedError = "Error: $($_.Exception.Message)`n`nPath: $VersionFile`n`nThis is not critical for the main application."
-        Write-Log -Level 'ERROR' $errorMsg
-        Write-Log -Level 'WARN' "Continuing installation without version file."
+        Write-InstallLog -Level 'ERROR' "Failed to store version information."
+        Write-InstallLog -Level 'WARN' "Continuing installation without version file."
+        Add-Content -Path $LogFile -Value "Error: $($_.Exception.Message)"
+        Add-Content -Path $LogFile -Value "Path: $VersionFile"
+        Add-Content -Path $LogFile -Value "This is not critical for the main application."
         $script:HasErrors = $true
         $script:ErrorDetails += "Version file creation failed (non-critical)"
     }
@@ -546,8 +547,8 @@ function Set-VersionInfo {
 # Wrap the entire installation in a try-catch block
 try {
     Clear-Content -Path $LogFile -ErrorAction SilentlyContinue
-    Write-Log -Level 'INFO' "Starting Deadlock API Ingest installation..."
-    Write-Log -Level 'INFO' "Log file is available at: $LogFile"
+    Write-InstallLog -Level 'INFO' "Starting Deadlock API Ingest installation..."
+    Write-InstallLog -Level 'INFO' "Log file is available at: $LogFile"
 
     Test-IsAdmin
     $release = Get-LatestRelease
@@ -559,14 +560,14 @@ try {
         Set-UpdateTask -Action 'Remove'
     } -ContinueOnError | Out-Null
 
-    Write-Log -Level 'INFO' "Preparing installation environment..."
+    Write-InstallLog -Level 'INFO' "Preparing installation environment..."
 
     try {
         Stop-Process -Name $AppName -Force -ErrorAction SilentlyContinue
     }
     catch {
         # This is expected if the process isn't running
-        Write-Log -Level 'INFO' "No existing process to stop."
+        Write-InstallLog -Level 'INFO' "No existing process to stop."
     }
 
     try {
@@ -582,7 +583,7 @@ try {
     }
 
     $downloadPath = Join-Path -Path $InstallDir -ChildPath $FinalExecutableName
-    Write-Log -Level 'INFO' "Downloading application binary..."
+    Write-InstallLog -Level 'INFO' "Downloading application binary..."
     # Log detailed URL to file only
     Add-Content -Path $LogFile -Value "Downloading from: $($release.DownloadUrl)"
 
@@ -599,7 +600,7 @@ try {
         if ($actualSize -ne $release.Size) {
             Invoke-FatalError -ErrorMessage "File size mismatch! Download may be corrupted." -DetailedError "Expected: $($release.Size) bytes`nActual: $actualSize bytes`n`nPlease try running the installation again."
         }
-        Write-Log -Level 'SUCCESS' "Download complete and verified."
+        Write-InstallLog -Level 'SUCCESS' "Download complete and verified."
     }
     catch {
         Invoke-FatalError -ErrorMessage "Failed to verify downloaded file." -DetailedError $_.Exception.Message
@@ -609,12 +610,12 @@ try {
         Unblock-File -Path $downloadPath
     }
     catch {
-        Write-Log -Level 'WARN' "Failed to unblock downloaded file, but continuing installation."
+        Write-InstallLog -Level 'WARN' "Failed to unblock downloaded file, but continuing installation."
         $script:HasErrors = $true
         $script:ErrorDetails += "File unblock failed (non-critical)"
     }
 
-    Write-Log -Level 'INFO' "Installing application..."
+    Write-InstallLog -Level 'INFO' "Installing application..."
 
     # Ask user if they want auto-start
     Write-Host ""
@@ -636,7 +637,7 @@ try {
 
     if (-not $isInteractive) {
         Write-Host "Y (default in non-interactive mode)" -ForegroundColor Cyan
-        Write-Log -Level 'INFO' "Non-interactive mode detected. Enabling auto-start by default."
+        Write-InstallLog -Level 'INFO' "Non-interactive mode detected. Enabling auto-start by default."
         $enableAutoStart = $true
     } else {
         # Try to read with timeout
@@ -669,7 +670,7 @@ try {
             # Check timeout
             if (((Get-Date) - $startTime).TotalSeconds -ge $timeoutSeconds -and -not $keyPressed) {
                 Write-Host "Y (timeout - defaulting to yes)" -ForegroundColor Cyan
-                Write-Log -Level 'INFO' "No response received within $timeoutSeconds seconds. Enabling auto-start by default."
+                Write-InstallLog -Level 'INFO' "No response received within $timeoutSeconds seconds. Enabling auto-start by default."
                 $enableAutoStart = $true
                 $keyPressed = $true
                 break
@@ -680,7 +681,7 @@ try {
 
         if (-not $keyPressed) {
             Write-Host "Y (max attempts reached - defaulting to yes)" -ForegroundColor Cyan
-            Write-Log -Level 'INFO' "Maximum attempts reached. Enabling auto-start by default."
+            Write-InstallLog -Level 'INFO' "Maximum attempts reached. Enabling auto-start by default."
             $enableAutoStart = $true
         }
     }
@@ -688,7 +689,7 @@ try {
     Write-Host ""
 
     if ($enableAutoStart) {
-        Write-Log -Level 'INFO' "User chose to enable auto-start."
+        Write-InstallLog -Level 'INFO' "User chose to enable auto-start."
         # Create the main scheduled task
         Set-StartupTask -Action 'Create' -ExecutablePath $downloadPath
 
@@ -698,18 +699,18 @@ try {
         # Start the main task
         try {
             Start-ScheduledTask -TaskName $AppName
-            Write-Log -Level 'SUCCESS' "Application started successfully with auto-start enabled."
+            Write-InstallLog -Level 'SUCCESS' "Application started successfully with auto-start enabled."
         }
         catch {
-            Write-Log -Level 'ERROR' "Failed to start the application task."
-            Write-Log -Level 'WARN' "Continuing installation - you can start the task manually later."
+            Write-InstallLog -Level 'ERROR' "Failed to start the application task."
+            Write-InstallLog -Level 'WARN' "Continuing installation - you can start the task manually later."
             Add-Content -Path $LogFile -Value "Error: $($_.Exception.Message)"
             Add-Content -Path $LogFile -Value "The application was installed but failed to start automatically. You can start it manually using: Start-ScheduledTask -TaskName $AppName"
             $script:HasErrors = $true
             $script:ErrorDetails += "Task start failed (non-critical)"
         }
     } else {
-        Write-Log -Level 'INFO' "User chose to skip auto-start."
+        Write-InstallLog -Level 'INFO' "User chose to skip auto-start."
         Write-Host "Auto-start will not be enabled." -ForegroundColor Yellow
         Write-Host ""
 
@@ -722,7 +723,7 @@ try {
 
         if (-not $isInteractive) {
             Write-Host "Y (default in non-interactive mode)" -ForegroundColor Cyan
-            Write-Log -Level 'INFO' "Non-interactive mode detected. Creating desktop shortcut by default."
+            Write-InstallLog -Level 'INFO' "Non-interactive mode detected. Creating desktop shortcut by default."
             $createShortcut = $true
         } else {
             # Try to read with timeout
@@ -754,7 +755,7 @@ try {
                 # Check timeout
                 if (((Get-Date) - $startTime).TotalSeconds -ge $timeoutSeconds -and -not $keyPressed) {
                     Write-Host "Y (timeout - defaulting to yes)" -ForegroundColor Cyan
-                    Write-Log -Level 'INFO' "No response received within $timeoutSeconds seconds. Creating desktop shortcut by default."
+                    Write-InstallLog -Level 'INFO' "No response received within $timeoutSeconds seconds. Creating desktop shortcut by default."
                     $createShortcut = $true
                     $keyPressed = $true
                     break
@@ -765,7 +766,7 @@ try {
 
             if (-not $keyPressed) {
                 Write-Host "Y (max attempts reached - defaulting to yes)" -ForegroundColor Cyan
-                Write-Log -Level 'INFO' "Maximum attempts reached. Creating desktop shortcut by default."
+                Write-InstallLog -Level 'INFO' "Maximum attempts reached. Creating desktop shortcut by default."
                 $createShortcut = $true
             }
         }
@@ -809,7 +810,7 @@ try {
 
     if (-not $isInteractive) {
         Write-Host "Y (default in non-interactive mode)" -ForegroundColor Cyan
-        Write-Log -Level 'INFO' "Non-interactive mode detected. Installing automatic updater by default."
+        Write-InstallLog -Level 'INFO' "Non-interactive mode detected. Installing automatic updater by default."
         $installUpdater = $true
     } else {
         # Try to read with timeout
@@ -841,7 +842,7 @@ try {
             # Check timeout
             if (((Get-Date) - $startTime).TotalSeconds -ge $timeoutSeconds -and -not $keyPressed) {
                 Write-Host "Y (timeout - defaulting to yes)" -ForegroundColor Cyan
-                Write-Log -Level 'INFO' "No response received within $timeoutSeconds seconds. Installing automatic updater by default."
+                Write-InstallLog -Level 'INFO' "No response received within $timeoutSeconds seconds. Installing automatic updater by default."
                 $installUpdater = $true
                 $keyPressed = $true
                 break
@@ -852,7 +853,7 @@ try {
 
         if (-not $keyPressed) {
             Write-Host "Y (max attempts reached - defaulting to yes)" -ForegroundColor Cyan
-            Write-Log -Level 'INFO' "Maximum attempts reached. Installing automatic updater by default."
+            Write-InstallLog -Level 'INFO' "Maximum attempts reached. Installing automatic updater by default."
             $installUpdater = $true
         }
     }
@@ -860,7 +861,7 @@ try {
     Write-Host ""
 
     if ($installUpdater) {
-        Write-Log -Level 'INFO' "User chose to enable automatic updates."
+        Write-InstallLog -Level 'INFO' "User chose to enable automatic updates."
         # Store version information
         Set-VersionInfo -Version $release.Version
         # Create configuration file
@@ -870,7 +871,7 @@ try {
         # Create the update scheduled task
         Set-UpdateTask -Action 'Create'
     } else {
-        Write-Log -Level 'INFO' "User chose to skip automatic updates."
+        Write-InstallLog -Level 'INFO' "User chose to skip automatic updates."
         Write-Host "Automatic updates will not be installed." -ForegroundColor Yellow
         Write-Host "You can manually update by downloading the latest version from GitHub or re-run the installer." -ForegroundColor White
         Write-Host ""
@@ -883,7 +884,7 @@ catch {
 # Display final status
 if (-not $script:HasErrors) {
     Write-Host " "
-    Write-Log -Level 'SUCCESS' "Deadlock API Ingest ($($release.Version)) has been installed successfully!"
+    Write-InstallLog -Level 'SUCCESS' "Deadlock API Ingest ($($release.Version)) has been installed successfully!"
 
     # Check if auto-start is enabled
     $autoStartEnabled = $false
@@ -950,12 +951,12 @@ if (-not $script:HasErrors) {
     Write-Host "    INSTALLATION COMPLETED WITH ISSUES  " -ForegroundColor Yellow
     Write-Host "========================================" -ForegroundColor Yellow
     Write-Host " "
-    Write-Log -Level 'WARN' "Installation completed but some non-critical components failed:"
+    Write-InstallLog -Level 'WARN' "Installation completed but some non-critical components failed:"
     foreach ($error in $script:ErrorDetails) {
         Write-Host "  - $error" -ForegroundColor Yellow
     }
     Write-Host " "
-    Write-Log -Level 'INFO' "The main application should still work. Check the log file for details: $LogFile"
+    Write-InstallLog -Level 'INFO' "The main application should still work. Check the log file for details: $LogFile"
     Write-Host " "
 }
 
