@@ -336,17 +336,11 @@ function Manage-StartupTask {
                 # Define the user and permissions (run as SYSTEM with highest privileges)
                 $taskPrincipal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 
-                # Define settings with retry logic
-                # - RestartCount: Number of times to retry if the task fails
-                # - RestartInterval: Time to wait between retries (in minutes)
-                # - StartWhenAvailable: Start the task as soon as possible if a scheduled start is missed
-                # - MultipleInstances: Prevent multiple instances from running simultaneously
+                # Define settings (allow it to run indefinitely, prevent multiple instances)
                 $taskSettings = New-ScheduledTaskSettingsSet `
                     -AllowStartIfOnBatteries `
                     -DontStopIfGoingOnBatteries `
                     -ExecutionTimeLimit 0 `
-                    -RestartCount 3 `
-                    -RestartInterval (New-TimeSpan -Minutes 1) `
                     -StartWhenAvailable `
                     -MultipleInstances IgnoreNew
 
@@ -357,6 +351,76 @@ function Manage-StartupTask {
             }
             catch {
                 Handle-FatalError -ErrorMessage "Failed to create startup task." -DetailedError "Error: $($_.Exception.Message)`n`nThis could be due to:`n- Insufficient permissions`n- Task Scheduler service not running`n- Conflicting task name`n- System policy restrictions"
+            }
+        }
+    }
+}
+
+# Function to manage the Watchdog Task (ensures app is always running)
+function Manage-WatchdogTask {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('Remove', 'Create')]
+        [string]$Action,
+        [string]$ExecutablePath
+    )
+
+    $WatchdogTaskName = "$AppName-Watchdog"
+
+    switch ($Action) {
+        'Remove' {
+            Invoke-Quietly "Removing existing watchdog task..." {
+                Unregister-ScheduledTask -TaskName $WatchdogTaskName -Confirm:$false -ErrorAction SilentlyContinue
+            } | Out-Null
+        }
+        'Create' {
+            Write-Log -Level 'INFO' "Creating watchdog task to ensure application stays running..."
+
+            try {
+                # Create a PowerShell script that checks if the process is running
+                $watchdogScript = @"
+`$processName = '$([System.IO.Path]::GetFileNameWithoutExtension($ExecutablePath))'
+`$taskName = '$AppName'
+
+# Check if the process is already running
+`$process = Get-Process -Name `$processName -ErrorAction SilentlyContinue
+
+if (-not `$process) {
+    # Process not running, start the scheduled task
+    Start-ScheduledTask -TaskName `$taskName -ErrorAction SilentlyContinue
+}
+"@
+
+                $watchdogScriptPath = Join-Path $InstallDir "watchdog.ps1"
+                Set-Content -Path $watchdogScriptPath -Value $watchdogScript -Force
+
+                # Define the action (run PowerShell with the watchdog script)
+                $taskAction = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$watchdogScriptPath`"" -WorkingDirectory $InstallDir
+
+                # Define the trigger (every 30 minutes)
+                $taskTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 30) -RepetitionDuration ([TimeSpan]::MaxValue)
+
+                # Define the user and permissions (run as SYSTEM)
+                $taskPrincipal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+
+                # Define settings
+                $taskSettings = New-ScheduledTaskSettingsSet `
+                    -AllowStartIfOnBatteries `
+                    -DontStopIfGoingOnBatteries `
+                    -ExecutionTimeLimit (New-TimeSpan -Minutes 5) `
+                    -StartWhenAvailable `
+                    -MultipleInstances IgnoreNew
+
+                # Register the task with the system
+                Register-ScheduledTask -TaskName $WatchdogTaskName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Monitors and restarts the Deadlock API Ingest application if it stops running." | Out-Null
+
+                Write-Log -Level 'SUCCESS' "Watchdog task created successfully (checks every 30 minutes)."
+            }
+            catch {
+                Write-Log -Level 'ERROR' "Failed to create watchdog task: $($_.Exception.Message)"
+                Write-Log -Level 'WARN' "Continuing installation without watchdog task."
+                $script:HasErrors = $true
+                $script:ErrorDetails += "Watchdog task creation failed (non-critical)"
             }
         }
     }
@@ -479,9 +543,10 @@ try {
     Test-IsAdmin
     $release = Get-LatestRelease
 
-    # Remove any old scheduled tasks (both main and update)
+    # Remove any old scheduled tasks (main, watchdog, and update)
     Invoke-Quietly "Removing existing scheduled tasks..." {
         Manage-StartupTask -Action 'Remove'
+        Manage-WatchdogTask -Action 'Remove'
         Manage-UpdateTask -Action 'Remove'
     } -ContinueOnError | Out-Null
 
@@ -617,6 +682,9 @@ try {
         Write-Log -Level 'INFO' "User chose to enable auto-start."
         # Create the main scheduled task
         Manage-StartupTask -Action 'Create' -ExecutablePath $downloadPath
+
+        # Create the watchdog task to ensure the app stays running
+        Manage-WatchdogTask -Action 'Create' -ExecutablePath $downloadPath
 
         # Start the main task
         try {
