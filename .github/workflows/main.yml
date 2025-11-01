@@ -126,9 +126,27 @@ jobs:
       - name: Run tests
         run: cargo test --locked
 
+  shellcheck-installer:
+    name: Shellcheck Installer Script
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Shellcheck
+        uses: ludeeus/action-shellcheck@master
+
+  powershell-analyzer:
+    name: PowerShell Analyzer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: PSScriptAnalyzer
+        uses: microsoft/psscriptanalyzer-action@v1.0
+        with:
+          path: install-windows.ps1
+
   build:
     name: Build
-    needs: [ fmt, deps, audit, typos, lint, test ]
+    needs: [ fmt, deps, audit, typos, lint, test, shellcheck-installer ]
     strategy:
       fail-fast: false
       matrix:
