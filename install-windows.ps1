@@ -336,8 +336,19 @@ function Manage-StartupTask {
                 # Define the user and permissions (run as SYSTEM with highest privileges)
                 $taskPrincipal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 
-                # Define settings (allow it to run indefinitely)
-                $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0
+                # Define settings with retry logic
+                # - RestartCount: Number of times to retry if the task fails
+                # - RestartInterval: Time to wait between retries (in minutes)
+                # - StartWhenAvailable: Start the task as soon as possible if a scheduled start is missed
+                # - MultipleInstances: Prevent multiple instances from running simultaneously
+                $taskSettings = New-ScheduledTaskSettingsSet `
+                    -AllowStartIfOnBatteries `
+                    -DontStopIfGoingOnBatteries `
+                    -ExecutionTimeLimit 0 `
+                    -RestartCount 3 `
+                    -RestartInterval (New-TimeSpan -Minutes 1) `
+                    -StartWhenAvailable `
+                    -MultipleInstances IgnoreNew
 
                 # Register the task with the system
                 Register-ScheduledTask -TaskName $AppName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Runs the Deadlock API Ingest application on system startup." | Out-Null
