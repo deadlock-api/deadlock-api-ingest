@@ -22,7 +22,8 @@ UPDATE_LOG_FILE="/var/log/${APP_NAME}-updater.log"
 update_log() {
     local level="$1"
     local message="$2"
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     local log_message="[$timestamp] [$level] $message"
     
     # Ensure log directory exists
@@ -41,7 +42,8 @@ update_log() {
 # Check if automatic updates are enabled
 check_update_enabled() {
     if [[ -f "$CONFIG_FILE" ]]; then
-        local auto_update=$(grep -E "^AUTO_UPDATE=" "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2 | tr -d '"' || echo "true")
+        local auto_update
+        auto_update=$(grep -E "^AUTO_UPDATE=" "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2 | tr -d '"' || echo "true")
         if [[ "$auto_update" == "false" ]]; then
             update_log "INFO" "Automatic updates are disabled. Exiting."
             exit 0
@@ -87,7 +89,8 @@ version_compare() {
 # Create backup of current executable
 create_backup() {
     local executable_path="$INSTALL_DIR/$APP_NAME"
-    local backup_path="$BACKUP_DIR/$(basename "$executable_path").$(date +%Y%m%d_%H%M%S)"
+    local backup_path
+    backup_path="$BACKUP_DIR/$(basename "$executable_path").$(date +%Y%m%d_%H%M%S)"
     
     mkdir -p "$BACKUP_DIR"
     
@@ -151,9 +154,10 @@ download_and_install() {
         rm -f "$temp_download_path"
         return 1
     fi
-    
+
     # Verify file size
-    local actual_size=$(stat -c%s "$temp_download_path")
+    local actual_size
+    actual_size=$(stat -c%s "$temp_download_path")
     if [[ "$actual_size" != "$size" ]]; then
         update_log "ERROR" "File size mismatch! Expected: $size bytes, Got: $actual_size bytes."
         rm -f "$temp_download_path"
@@ -210,10 +214,12 @@ main() {
     
     # Check if updates are enabled
     check_update_enabled
-    
+
     # Get current and latest versions
-    local current_version=$(get_current_version)
-    local latest_version=$(get_latest_version)
+    local current_version
+    current_version=$(get_current_version)
+    local latest_version
+    latest_version=$(get_latest_version)
     
     if [[ -z "$latest_version" ]] || [[ "$latest_version" == "null" ]]; then
         update_log "ERROR" "Failed to get latest version information."
@@ -230,9 +236,10 @@ main() {
     fi
     
     update_log "INFO" "Update available. Starting update process..."
-    
+
     # Create backup
-    local backup_path=$(create_backup)
+    local backup_path
+    backup_path=$(create_backup)
     
     # Stop the main service
     update_log "INFO" "Stopping main service for update..."
