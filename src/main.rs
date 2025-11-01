@@ -29,7 +29,7 @@ fn main() {
             scan_cache::initial_cache_dir_ingest(&cache_dir);
             println!("Initial cache ingest completed. Exiting.");
         } else {
-            println!("Could not find cache directory. Exiting.");
+            eprintln!("Could not find cache directory. Exiting.");
         }
         return;
     }
@@ -39,7 +39,7 @@ fn main() {
     handles.push(std::thread::spawn(|| {
         loop {
             if let Err(e) = PlatformListener.listen() {
-                println!("Error in HTTP listener: {e:?}");
+                eprintln!("Error in HTTP listener: {e:?}");
             }
             std::thread::sleep(core::time::Duration::from_secs(10));
         }
@@ -51,7 +51,7 @@ fn main() {
             scan_cache::initial_cache_dir_ingest(&cache_dir);
             loop {
                 if let Err(e) = scan_cache::watch_cache_dir(&cache_dir) {
-                    println!("Error in cache watcher: {e:?}");
+                    eprintln!("Error in cache watcher: {e:?}");
                 }
                 std::thread::sleep(core::time::Duration::from_secs(10));
             }
