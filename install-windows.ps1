@@ -1,6 +1,10 @@
 # Deadlock API Ingest - Windows Installation Script
 # This script downloads and installs the application to run automatically on system startup via Task Scheduler.
 
+# Suppress PSScriptAnalyzer warnings for Write-Host in this interactive installation script
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification='Interactive installation script requires colored console output for user experience')]
+param()
+
 # --- Configuration ---
 $AppName = "deadlock-api-ingest"
 $GithubRepo = "deadlock-api/deadlock-api-ingest"
@@ -32,7 +36,7 @@ if ($env:CI -eq 'true' -or $env:GITHUB_ACTIONS -eq 'true' -or $env:TF_BUILD -eq 
 }
 
 # Function to handle errors and keep window open
-function Handle-FatalError {
+function Invoke-FatalError {
     param(
         [Parameter(Mandatory = $true)]
         [string]$ErrorMessage,
@@ -150,7 +154,7 @@ function Invoke-Quietly {
         Add-Content -Path $LogFile -Value "Stack Trace: $($_.ScriptStackTrace)"
 
         if (-not $ContinueOnError) {
-            Handle-FatalError -ErrorMessage $errorMsg -DetailedError $_.Exception.Message
+            Invoke-FatalError -ErrorMessage $errorMsg -DetailedError $_.Exception.Message
         }
         return $false
     }
@@ -162,12 +166,12 @@ function Test-IsAdmin {
         $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
         $isAdmin = (New-Object Security.Principal.WindowsPrincipal $currentUser).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
         if (-not $isAdmin) {
-            Handle-FatalError -ErrorMessage "This script requires Administrator privileges. Please re-run as Administrator." -DetailedError "Right-click on PowerShell and select 'Run as Administrator', then run this script again."
+            Invoke-FatalError -ErrorMessage "This script requires Administrator privileges. Please re-run as Administrator." -DetailedError "Right-click on PowerShell and select 'Run as Administrator', then run this script again."
         }
         Write-Log -Level 'INFO' "Running with Administrator privileges."
     }
     catch {
-        Handle-FatalError -ErrorMessage "Failed to check Administrator privileges." -DetailedError $_.Exception.Message
+        Invoke-FatalError -ErrorMessage "Failed to check Administrator privileges." -DetailedError $_.Exception.Message
     }
 }
 
@@ -181,7 +185,7 @@ function Get-LatestRelease {
     catch {
         $errorMsg = "Failed to fetch release information from GitHub API."
         $detailedError = "URL: $ApiUrl`nError: $($_.Exception.Message)`n`nPossible causes:`n- No internet connection`n- GitHub API rate limit exceeded`n- Repository not found or private`n- Firewall blocking the request"
-        Handle-FatalError -ErrorMessage $errorMsg -DetailedError $detailedError
+        Invoke-FatalError -ErrorMessage $errorMsg -DetailedError $detailedError
     }
 
     try {
@@ -190,7 +194,7 @@ function Get-LatestRelease {
             $availableAssets = if ($releaseInfo.assets) { $releaseInfo.assets.name -join ', ' } else { "None" }
             $errorMsg = "Could not find a release asset containing the keyword: '$AssetKeyword'"
             $detailedError = "Available assets are: $availableAssets`n`nThe release may not have been built for Windows, or the asset naming convention has changed."
-            Handle-FatalError -ErrorMessage $errorMsg -DetailedError $detailedError
+            Invoke-FatalError -ErrorMessage $errorMsg -DetailedError $detailedError
         }
         Write-Log -Level 'SUCCESS' "Found version: $($releaseInfo.tag_name)"
         return [PSCustomObject]@{
@@ -200,7 +204,7 @@ function Get-LatestRelease {
         }
     }
     catch {
-        Handle-FatalError -ErrorMessage "Failed to process release information." -DetailedError $_.Exception.Message
+        Invoke-FatalError -ErrorMessage "Failed to process release information." -DetailedError $_.Exception.Message
     }
 }
 
@@ -214,10 +218,9 @@ function Get-UpdateChecker {
         Invoke-WebRequest -Uri $UpdateScriptUrl -OutFile $UpdateScriptPath -UseBasicParsing
         Write-Log -Level 'SUCCESS' "Update checker script installed."
     } catch {
-        $errorMsg = "Failed to download update checker script."
-        $detailedError = "URL: $UpdateScriptUrl`nError: $($_.Exception.Message)`n`nThis is not critical for the main installation, but automatic updates will not work."
-        Write-Log -Level 'ERROR' $errorMsg
+        Write-Log -Level 'ERROR' "Failed to download update checker script."
         Write-Log -Level 'WARN' "Continuing installation without update checker script."
+        Add-Content -Path $LogFile -Value "Error details: $($_.Exception.Message)"
         $script:HasErrors = $true
         $script:ErrorDetails += "Update checker download failed (non-critical)"
     }
@@ -239,9 +242,9 @@ function Get-ActualUser {
             }
             # Method 2: Get the user who owns the explorer.exe process (usually the logged-in user)
             else {
-                $explorerProcess = Get-WmiObject Win32_Process -Filter "name = 'explorer.exe'" | Select-Object -First 1
+                $explorerProcess = Get-CimInstance Win32_Process -Filter "name = 'explorer.exe'" | Select-Object -First 1
                 if ($explorerProcess) {
-                    $owner = $explorerProcess.GetOwner()
+                    $owner = Invoke-CimMethod -InputObject $explorerProcess -MethodName GetOwner
                     if ($owner.User) {
                         $actualUser = $owner.User
                     }
@@ -307,10 +310,9 @@ function New-DesktopShortcut {
         return $true
     }
     catch {
-        $errorMsg = "Failed to create desktop shortcut: $ShortcutName"
-        $detailedError = "Error: $($_.Exception.Message)`n`nThis is not critical for the main application."
-        Write-Log -Level 'ERROR' $errorMsg
+        Write-Log -Level 'ERROR' "Failed to create desktop shortcut: $ShortcutName"
         Write-Log -Level 'WARN' "Continuing installation without desktop shortcut."
+        Add-Content -Path $LogFile -Value "Error details: $($_.Exception.Message)"
         $script:HasErrors = $true
         $script:ErrorDetails += "Desktop shortcut creation failed (non-critical)"
         return $false
@@ -318,7 +320,7 @@ function New-DesktopShortcut {
 }
 
 # Function to manage the Scheduled Task for autostart
-function Manage-StartupTask {
+function Set-StartupTask {
     param(
         [Parameter(Mandatory = $true)]
         [ValidateSet('Remove', 'Create')]
@@ -359,14 +361,14 @@ function Manage-StartupTask {
                 Write-Log -Level 'SUCCESS' "Startup task created successfully."
             }
             catch {
-                Handle-FatalError -ErrorMessage "Failed to create startup task." -DetailedError "Error: $($_.Exception.Message)`n`nThis could be due to:`n- Insufficient permissions`n- Task Scheduler service not running`n- Conflicting task name`n- System policy restrictions"
+                Invoke-FatalError -ErrorMessage "Failed to create startup task." -DetailedError "Error: $($_.Exception.Message)`n`nThis could be due to:`n- Insufficient permissions`n- Task Scheduler service not running`n- Conflicting task name`n- System policy restrictions"
             }
         }
     }
 }
 
 # Function to manage the Watchdog Task (ensures app is always running)
-function Manage-WatchdogTask {
+function Set-WatchdogTask {
     param(
         [Parameter(Mandatory = $true)]
         [ValidateSet('Remove', 'Create')]
@@ -436,7 +438,7 @@ if (-not `$process) {
 }
 
 # Function to manage the update scheduled task
-function Manage-UpdateTask {
+function Set-UpdateTask {
     param(
         [Parameter(Mandatory = $true)]
         [ValidateSet('Remove', 'Create')]
@@ -474,10 +476,9 @@ function Manage-UpdateTask {
                 Add-Content -Path $LogFile -Value "Update task will run daily at 3:00 AM (with up to 30 minute random delay)."
             }
             catch {
-                $errorMsg = "Failed to create automatic update task."
-                $detailedError = "Error: $($_.Exception.Message)`n`nAutomatic updates will not be available, but the main application will still work."
-                Write-Log -Level 'ERROR' $errorMsg
+                Write-Log -Level 'ERROR' "Failed to create automatic update task."
                 Write-Log -Level 'WARN' "Continuing installation without automatic updates."
+                Add-Content -Path $LogFile -Value "Error details: $($_.Exception.Message)"
                 $script:HasErrors = $true
                 $script:ErrorDetails += "Update task creation failed (non-critical)"
             }
@@ -515,10 +516,9 @@ UPDATE_LOG_LEVEL="INFO"
         Write-Log -Level 'SUCCESS' "Configuration file created at $ConfigFile"
     }
     catch {
-        $errorMsg = "Failed to create configuration file."
-        $detailedError = "Error: $($_.Exception.Message)`n`nPath: $ConfigFile`n`nThis is not critical for the main application."
-        Write-Log -Level 'ERROR' $errorMsg
+        Write-Log -Level 'ERROR' "Failed to create configuration file."
         Write-Log -Level 'WARN' "Continuing installation without configuration file."
+        Add-Content -Path $LogFile -Value "Error details: $($_.Exception.Message)"
         $script:HasErrors = $true
         $script:ErrorDetails += "Configuration file creation failed (non-critical)"
     }
@@ -554,9 +554,9 @@ try {
 
     # Remove any old scheduled tasks (main, watchdog, and update)
     Invoke-Quietly "Removing existing scheduled tasks..." {
-        Manage-StartupTask -Action 'Remove'
-        Manage-WatchdogTask -Action 'Remove'
-        Manage-UpdateTask -Action 'Remove'
+        Set-StartupTask -Action 'Remove'
+        Set-WatchdogTask -Action 'Remove'
+        Set-UpdateTask -Action 'Remove'
     } -ContinueOnError | Out-Null
 
     Write-Log -Level 'INFO' "Preparing installation environment..."
@@ -578,7 +578,7 @@ try {
         New-Item -Path $UpdateLogDir -ItemType Directory -Force | Out-Null
     }
     catch {
-        Handle-FatalError -ErrorMessage "Failed to create installation directories." -DetailedError "Error: $($_.Exception.Message)`n`nInstall Directory: $InstallDir`nBackup Directory: $BackupDir`nUpdate Log Directory: $UpdateLogDir"
+        Invoke-FatalError -ErrorMessage "Failed to create installation directories." -DetailedError "Error: $($_.Exception.Message)`n`nInstall Directory: $InstallDir`nBackup Directory: $BackupDir`nUpdate Log Directory: $UpdateLogDir"
     }
 
     $downloadPath = Join-Path -Path $InstallDir -ChildPath $FinalExecutableName
@@ -590,19 +590,19 @@ try {
         Invoke-WebRequest -Uri $release.DownloadUrl -OutFile $downloadPath -UseBasicParsing
     }
     catch {
-        Handle-FatalError -ErrorMessage "Failed to download application binary." -DetailedError "URL: $($release.DownloadUrl)`nDestination: $downloadPath`nError: $($_.Exception.Message)`n`nPossible causes:`n- No internet connection`n- Insufficient disk space`n- Permission denied to write to installation directory"
+        Invoke-FatalError -ErrorMessage "Failed to download application binary." -DetailedError "URL: $($release.DownloadUrl)`nDestination: $downloadPath`nError: $($_.Exception.Message)`n`nPossible causes:`n- No internet connection`n- Insufficient disk space`n- Permission denied to write to installation directory"
     }
 
     # Verify file size
     try {
         $actualSize = (Get-Item -Path $downloadPath).Length
         if ($actualSize -ne $release.Size) {
-            Handle-FatalError -ErrorMessage "File size mismatch! Download may be corrupted." -DetailedError "Expected: $($release.Size) bytes`nActual: $actualSize bytes`n`nPlease try running the installation again."
+            Invoke-FatalError -ErrorMessage "File size mismatch! Download may be corrupted." -DetailedError "Expected: $($release.Size) bytes`nActual: $actualSize bytes`n`nPlease try running the installation again."
         }
         Write-Log -Level 'SUCCESS' "Download complete and verified."
     }
     catch {
-        Handle-FatalError -ErrorMessage "Failed to verify downloaded file." -DetailedError $_.Exception.Message
+        Invoke-FatalError -ErrorMessage "Failed to verify downloaded file." -DetailedError $_.Exception.Message
     }
 
     try {
@@ -690,10 +690,10 @@ try {
     if ($enableAutoStart) {
         Write-Log -Level 'INFO' "User chose to enable auto-start."
         # Create the main scheduled task
-        Manage-StartupTask -Action 'Create' -ExecutablePath $downloadPath
+        Set-StartupTask -Action 'Create' -ExecutablePath $downloadPath
 
         # Create the watchdog task to ensure the app stays running
-        Manage-WatchdogTask -Action 'Create' -ExecutablePath $downloadPath
+        Set-WatchdogTask -Action 'Create' -ExecutablePath $downloadPath
 
         # Start the main task
         try {
@@ -701,10 +701,10 @@ try {
             Write-Log -Level 'SUCCESS' "Application started successfully with auto-start enabled."
         }
         catch {
-            $errorMsg = "Failed to start the application task."
-            $detailedError = "Error: $($_.Exception.Message)`n`nThe application was installed but failed to start automatically. You can start it manually using:`nStart-ScheduledTask -TaskName $AppName"
-            Write-Log -Level 'ERROR' $errorMsg
+            Write-Log -Level 'ERROR' "Failed to start the application task."
             Write-Log -Level 'WARN' "Continuing installation - you can start the task manually later."
+            Add-Content -Path $LogFile -Value "Error: $($_.Exception.Message)"
+            Add-Content -Path $LogFile -Value "The application was installed but failed to start automatically. You can start it manually using: Start-ScheduledTask -TaskName $AppName"
             $script:HasErrors = $true
             $script:ErrorDetails += "Task start failed (non-critical)"
         }
@@ -868,7 +868,7 @@ try {
         # Download update checker script
         Get-UpdateChecker
         # Create the update scheduled task
-        Manage-UpdateTask -Action 'Create'
+        Set-UpdateTask -Action 'Create'
     } else {
         Write-Log -Level 'INFO' "User chose to skip automatic updates."
         Write-Host "Automatic updates will not be installed." -ForegroundColor Yellow
@@ -877,7 +877,7 @@ try {
     }
 }
 catch {
-    Handle-FatalError -ErrorMessage "Unexpected error during installation." -DetailedError $_.Exception.Message
+    Invoke-FatalError -ErrorMessage "Unexpected error during installation." -DetailedError $_.Exception.Message
 }
 
 # Display final status
@@ -921,7 +921,8 @@ if (-not $script:HasErrors) {
             $updatesEnabled = $true
         }
     } catch {
-        # Ignore errors
+        # Silently continue if task doesn't exist
+        Write-Verbose "Update task not found or error checking task status: $_"
     }
 
     if ($updatesEnabled) {
