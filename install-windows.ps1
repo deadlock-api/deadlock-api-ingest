@@ -214,6 +214,41 @@ function Get-UpdateChecker {
     }
 }
 
+# Function to get the actual user who invoked the script (not Administrator)
+function Get-ActualUser {
+    try {
+        # Try to get the user from environment variables set by UAC elevation
+        $actualUser = $env:USERNAME
+
+        # If running elevated, try to get the original user
+        if ([Security.Principal.WindowsIdentity]::GetCurrent().Name -match "Administrator") {
+            # Try various methods to get the actual user
+
+            # Method 1: Check USERPROFILE path
+            if ($env:USERPROFILE -notmatch "Administrator") {
+                $actualUser = Split-Path $env:USERPROFILE -Leaf
+            }
+            # Method 2: Get the user who owns the explorer.exe process (usually the logged-in user)
+            else {
+                $explorerProcess = Get-WmiObject Win32_Process -Filter "name = 'explorer.exe'" | Select-Object -First 1
+                if ($explorerProcess) {
+                    $owner = $explorerProcess.GetOwner()
+                    if ($owner.User) {
+                        $actualUser = $owner.User
+                    }
+                }
+            }
+        }
+
+        Write-Log -Level 'INFO' "Detected user: $actualUser"
+        return $actualUser
+    }
+    catch {
+        Write-Log -Level 'WARN' "Could not determine actual user, using current user: $env:USERNAME"
+        return $env:USERNAME
+    }
+}
+
 # Function to create desktop shortcut
 function New-DesktopShortcut {
     param(
@@ -224,8 +259,25 @@ function New-DesktopShortcut {
     Write-Log -Level 'INFO' "Creating desktop shortcut..."
 
     try {
+        # Get the actual user (not Administrator)
+        $actualUser = Get-ActualUser
+
+        # Build the path to the user's desktop
+        $userProfile = "C:\Users\$actualUser"
+        if (-not (Test-Path $userProfile)) {
+            # Fallback: try to find the user profile
+            $userProfile = (Get-ChildItem "C:\Users" | Where-Object { $_.Name -eq $actualUser } | Select-Object -First 1).FullName
+            if (-not $userProfile) {
+                throw "Could not find user profile for: $actualUser"
+            }
+        }
+
+        $DesktopPath = Join-Path -Path $userProfile -ChildPath "Desktop"
+        if (-not (Test-Path $DesktopPath)) {
+            throw "Desktop folder not found at: $DesktopPath"
+        }
+
         $WshShell = New-Object -ComObject WScript.Shell
-        $DesktopPath = [Environment]::GetFolderPath("CommonDesktopDirectory")
         $ShortcutPath = Join-Path -Path $DesktopPath -ChildPath "$AppName.lnk"
 
         $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
@@ -240,7 +292,7 @@ function New-DesktopShortcut {
     }
     catch {
         $errorMsg = "Failed to create desktop shortcut."
-        $detailedError = "Error: $($_.Exception.Message)`n`nPath: $ShortcutPath`n`nThis is not critical for the main application."
+        $detailedError = "Error: $($_.Exception.Message)`n`nThis is not critical for the main application."
         Write-Log -Level 'ERROR' $errorMsg
         Write-Log -Level 'WARN' "Continuing installation without desktop shortcut."
         $script:HasErrors = $true

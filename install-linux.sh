@@ -259,28 +259,61 @@ download_update_checker() {
     log "SUCCESS" "Update checker script installed."
 }
 
+# Function to get the actual user who invoked sudo (not root)
+get_actual_user() {
+    local actual_user=""
+
+    # Method 1: Check SUDO_USER environment variable
+    if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
+        actual_user="$SUDO_USER"
+    # Method 2: Check who is logged in (for direct root login)
+    elif [[ -n "${USER:-}" && "$USER" != "root" ]]; then
+        actual_user="$USER"
+    # Method 3: Try to get the user from the login session
+    else
+        actual_user=$(who | awk '{print $1}' | sort -u | grep -v "^root$" | head -n 1)
+    fi
+
+    # Fallback to root if we couldn't determine the user
+    if [[ -z "$actual_user" ]]; then
+        actual_user="root"
+    fi
+
+    log "INFO" "Detected user: $actual_user"
+    echo "$actual_user"
+}
+
 # Function to create desktop shortcut
 create_desktop_shortcut() {
     local executable_path="$1"
 
     log "INFO" "Creating desktop shortcut..."
 
-    # Try to find the appropriate desktop directory
-    local desktop_dir=""
+    # Get the actual user (not root)
+    local actual_user
+    actual_user=$(get_actual_user)
 
-    # Check for common desktop directories
-    if [[ -n "${XDG_DATA_DIRS:-}" ]]; then
-        # Try to find a system-wide applications directory
-        for dir in ${XDG_DATA_DIRS//:/ }; do
-            if [[ -d "$dir/applications" ]]; then
-                desktop_dir="$dir/applications"
-                break
-            fi
-        done
+    # Determine the user's home directory
+    local user_home
+    if [[ "$actual_user" == "root" ]]; then
+        user_home="/root"
+    else
+        user_home=$(eval echo "~$actual_user")
     fi
 
-    # Fallback to common locations
-    if [[ -z "$desktop_dir" ]]; then
+    if [[ ! -d "$user_home" ]]; then
+        log "WARN" "Could not find home directory for user: $actual_user"
+        return 1
+    fi
+
+    # Try to find the user's local applications directory first
+    local desktop_dir=""
+    local user_desktop_dir="$user_home/.local/share/applications"
+
+    if [[ -d "$user_desktop_dir" ]] || mkdir -p "$user_desktop_dir" 2>/dev/null; then
+        desktop_dir="$user_desktop_dir"
+    else
+        # Fallback to system-wide directory
         if [[ -d "/usr/share/applications" ]]; then
             desktop_dir="/usr/share/applications"
         elif [[ -d "/usr/local/share/applications" ]]; then
@@ -310,6 +343,12 @@ Keywords=deadlock;api;network;packet;
 EOF
 
     chmod 644 "$desktop_file"
+
+    # If we created it in the user's directory, set proper ownership
+    if [[ "$desktop_dir" == "$user_desktop_dir" && "$actual_user" != "root" ]]; then
+        chown "$actual_user:$actual_user" "$desktop_file" 2>/dev/null || true
+        chown "$actual_user:$actual_user" "$user_desktop_dir" 2>/dev/null || true
+    fi
 
     # Try to update desktop database if available
     if command -v update-desktop-database >/dev/null 2>&1; then
