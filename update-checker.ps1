@@ -1,6 +1,8 @@
 # Deadlock API Ingest - Update Checker Script
 # This script checks for new releases and updates the application automatically
 
+# Suppress PSScriptAnalyzer warnings for Write-Host in this script
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification='Console output needed for interactive execution')]
 param(
     [switch]$Force
 )
@@ -26,41 +28,43 @@ function Write-UpdateLog {
         [Parameter(Mandatory = $true)]
         [string]$Message
     )
-    
+
     $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $LogMessage = "[$Timestamp] [$Level] $Message"
-    
+
     # Ensure log directory exists
     $LogDir = Split-Path -Parent $UpdateLogFile
     if (-not (Test-Path $LogDir)) {
         New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
     }
-    
+
     # Write to log file
     Add-Content -Path $UpdateLogFile -Value $LogMessage
-    
+
     # Also write to event log
     $EventSource = "$AppName-Updater"
     if (-not [System.Diagnostics.EventLog]::SourceExists($EventSource)) {
         try {
             New-EventLog -LogName Application -Source $EventSource
         } catch {
-            # Ignore if we can't create event source
+            # Silently continue if we can't create event source (requires admin privileges)
+            Write-Verbose "Unable to create event log source: $_"
         }
     }
-    
+
     $EventType = switch ($Level) {
         'ERROR' { 'Error' }
         'WARN' { 'Warning' }
         default { 'Information' }
     }
-    
+
     try {
         Write-EventLog -LogName Application -Source $EventSource -EntryType $EventType -EventId 1000 -Message $Message
     } catch {
-        # Ignore if we can't write to event log
+        # Silently continue if we can't write to event log
+        Write-Verbose "Unable to write to event log: $_"
     }
-    
+
     # Also output to console if running interactively
     if ($Host.Name -eq "ConsoleHost") {
         $ColorMap = @{ 'INFO' = 'Cyan'; 'WARN' = 'Yellow'; 'ERROR' = 'Red'; 'SUCCESS' = 'Green' }
@@ -105,7 +109,7 @@ function Get-LatestVersion {
 
 function Test-UpdateNeeded {
     param($Current, $Latest)
-    
+
     if ($Current -eq "unknown" -or $Current -ne $Latest) {
         return $true
     } else {
@@ -116,11 +120,11 @@ function Test-UpdateNeeded {
 function New-Backup {
     $ExecutablePath = Join-Path $InstallDir $FinalExecutableName
     $BackupPath = Join-Path $BackupDir "$FinalExecutableName.$(Get-Date -Format 'yyyyMMdd_HHmmss')"
-    
+
     if (-not (Test-Path $BackupDir)) {
         New-Item -Path $BackupDir -ItemType Directory -Force | Out-Null
     }
-    
+
     if (Test-Path $ExecutablePath) {
         Copy-Item $ExecutablePath $BackupPath
         Write-UpdateLog -Level 'INFO' "Created backup: $BackupPath"
@@ -133,9 +137,9 @@ function New-Backup {
 
 function Restore-Backup {
     param($BackupPath)
-    
+
     $ExecutablePath = Join-Path $InstallDir $FinalExecutableName
-    
+
     if ($BackupPath -and (Test-Path $BackupPath)) {
         Write-UpdateLog -Level 'INFO' "Rolling back to previous version..."
         Copy-Item $BackupPath $ExecutablePath -Force
@@ -149,24 +153,24 @@ function Restore-Backup {
 
 function Install-NewVersion {
     param($Version)
-    
+
     try {
         $ApiUrl = "https://api.github.com/repos/$GithubRepo/releases/latest"
         $releaseInfo = Invoke-RestMethod -Uri $ApiUrl -UseBasicParsing
-        
+
         $asset = $releaseInfo.assets | Where-Object { $_.name -like "*$AssetKeyword*" } | Select-Object -First 1
         if (-not $asset) {
             Write-UpdateLog -Level 'ERROR' "Could not find a release asset containing the keyword: '$AssetKeyword'"
             return $false
         }
-        
+
         $TempDownloadPath = "$env:TEMP\$AppName-update-$Version.exe"
         $ExecutablePath = Join-Path $InstallDir $FinalExecutableName
-        
+
         Write-UpdateLog -Level 'INFO' "Downloading new version from: $($asset.browser_download_url)"
-        
+
         Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $TempDownloadPath -UseBasicParsing
-        
+
         # Verify file size
         $ActualSize = (Get-Item $TempDownloadPath).Length
         if ($ActualSize -ne $asset.size) {
@@ -174,19 +178,19 @@ function Install-NewVersion {
             Remove-Item $TempDownloadPath -Force
             return $false
         }
-        
+
         # Unblock the file
         Unblock-File -Path $TempDownloadPath
-        
+
         # Install new version
         Move-Item $TempDownloadPath $ExecutablePath -Force
-        
+
         # Update version file
         Set-Content -Path $VersionFile -Value $Version
-        
+
         Write-UpdateLog -Level 'SUCCESS' "New version installed successfully."
         return $true
-        
+
     } catch {
         Write-UpdateLog -Level 'ERROR' "Failed to download and install new version: $($_.Exception.Message)"
         if (Test-Path $TempDownloadPath) {
@@ -198,22 +202,22 @@ function Install-NewVersion {
 
 function Test-NewVersion {
     $TaskName = $AppName
-    
+
     Write-UpdateLog -Level 'INFO' "Testing new version by restarting scheduled task..."
-    
+
     try {
         # Stop the task if running
         Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-        
+
         # Start the task
         Start-ScheduledTask -TaskName $TaskName
-        
+
         # Wait a moment and check if it's running
         Start-Sleep -Seconds 5
-        
+
         $task = Get-ScheduledTask -TaskName $TaskName
         $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskName
-        
+
         if ($taskInfo.LastTaskResult -eq 0 -or $task.State -eq 'Running') {
             Write-UpdateLog -Level 'SUCCESS' "New version is running successfully."
             return $true
@@ -272,7 +276,7 @@ if (Install-NewVersion $LatestVersion) {
     # Test new version
     if (Test-NewVersion) {
         Write-UpdateLog -Level 'SUCCESS' "Update completed successfully to version $LatestVersion"
-        
+
         # Clean up old backups (keep last 5)
         $OldBackups = Get-ChildItem $BackupDir -Filter "$FinalExecutableName.*" | Sort-Object CreationTime -Descending | Select-Object -Skip 5
         $OldBackups | Remove-Item -Force
