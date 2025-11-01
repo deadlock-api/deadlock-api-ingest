@@ -26,6 +26,11 @@ $ErrorActionPreference = 'Stop'
 $script:HasErrors = $false
 $script:ErrorDetails = @()
 
+$script:SkipPressAnyKey = $false
+if ($env:CI -eq 'true' -or $env:GITHUB_ACTIONS -eq 'true' -or $env:TF_BUILD -eq 'True') {
+    $script:SkipPressAnyKey = $true
+}
+
 # Function to handle errors and keep window open
 function Handle-FatalError {
     param(
@@ -72,9 +77,11 @@ function Handle-FatalError {
         Write-Host ""
     }
 
-    # Wait for user acknowledgment
-    Write-Host "Press any key to close this window..." -ForegroundColor Green
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    # Wait for user acknowledgment (skip in CI environments)
+    if (-not $script:SkipPressAnyKey) {
+        Write-Host "Press any key to close this window..." -ForegroundColor Green
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    }
 
     exit $ExitCode
 }
@@ -86,12 +93,14 @@ function Show-FinalStatus {
         Write-Host "Installation completed with errors. Please review the messages above." -ForegroundColor Yellow
         Write-Host "Log file: $LogFile" -ForegroundColor Cyan
         Write-Host ""
-        Write-Host "Press any key to close this window..." -ForegroundColor Green
-        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     } else {
         Write-Host ""
         Write-Host "Installation completed successfully!" -ForegroundColor Green
         Write-Host ""
+    }
+
+    # Wait for user acknowledgment (skip in CI environments)
+    if (-not $script:SkipPressAnyKey) {
         Write-Host "Press any key to close this window..." -ForegroundColor Green
         $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     }
@@ -398,7 +407,7 @@ if (-not `$process) {
                 $taskAction = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$watchdogScriptPath`"" -WorkingDirectory $InstallDir
 
                 # Define the trigger (every 30 minutes)
-                $taskTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 30) -RepetitionDuration ([TimeSpan]::MaxValue)
+                $taskTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 30)
 
                 # Define the user and permissions (run as SYSTEM)
                 $taskPrincipal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
