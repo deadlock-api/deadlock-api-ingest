@@ -286,8 +286,11 @@ get_actual_user() {
 # Function to create desktop shortcut
 create_desktop_shortcut() {
     local executable_path="$1"
+    local arguments="${2:-}"
+    local shortcut_name="${3:-Deadlock API Ingest}"
+    local comment="${4:-Network packet analyzer for Deadlock game replay data}"
 
-    log "INFO" "Creating desktop shortcut..."
+    log "INFO" "Creating desktop shortcut: $shortcut_name..."
 
     # Get the actual user (not root)
     local actual_user
@@ -326,16 +329,25 @@ create_desktop_shortcut() {
         return 1
     fi
 
-    local desktop_file="$desktop_dir/${APP_NAME}.desktop"
+    # Create a safe filename from the shortcut name
+    local safe_name
+    safe_name=$(echo "$shortcut_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+    local desktop_file="$desktop_dir/${safe_name}.desktop"
+
+    # Build the Exec line with arguments if provided
+    local exec_line="$executable_path"
+    if [[ -n "$arguments" ]]; then
+        exec_line="$executable_path $arguments"
+    fi
 
     # Create the .desktop file
     cat > "$desktop_file" << EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Deadlock API Ingest
-Comment=Network packet analyzer for Deadlock game replay data
-Exec=$executable_path
+Name=$shortcut_name
+Comment=$comment
+Exec=$exec_line
 Icon=network-workgroup
 Terminal=false
 Categories=Network;System;
@@ -748,13 +760,32 @@ main() {
         fi
 
         if [[ "$create_shortcut" == true ]]; then
-            if create_desktop_shortcut "$final_executable_path"; then
-                log "INFO" "You can start the application using the desktop shortcut or by running: $final_executable_path"
+            # Create main shortcut
+            local main_created=false
+            local once_created=false
+
+            if create_desktop_shortcut "$final_executable_path" "" "Deadlock API Ingest" "Network packet analyzer for Deadlock game replay data"; then
+                main_created=true
+            fi
+
+            # Create "once" shortcut for initial cache ingest only
+            if create_desktop_shortcut "$final_executable_path" "--once" "Deadlock API Ingest (Once)" "Run once to ingest existing cache files only"; then
+                once_created=true
+            fi
+
+            if [[ "$main_created" == true && "$once_created" == true ]]; then
+                log "INFO" "Desktop shortcuts created:"
+                log "INFO" "  - Deadlock API Ingest: Start the application with monitoring"
+                log "INFO" "  - Deadlock API Ingest (Once): Run once to ingest existing cache files only"
+                log "INFO" "You can also start manually: $final_executable_path"
+            elif [[ "$main_created" == true ]]; then
+                log "INFO" "Main desktop shortcut created. You can also run: $final_executable_path"
             else
                 log "INFO" "You can start the application by running: $final_executable_path"
             fi
         else
-            log "INFO" "You can start the application by running: $final_executable_path"
+            log "INFO" "You can manually start the application by running: $final_executable_path"
+            log "INFO" "To run once (ingest existing cache only): $final_executable_path --once"
         fi
     fi
 

@@ -19,6 +19,21 @@ mod scan_cache;
 mod utils;
 
 fn main() {
+    // Check for --once flag
+    let once_mode = std::env::args().any(|arg| arg == "--once");
+
+    if once_mode {
+        println!("Running in once mode: performing initial cache ingest only");
+        let cache_dir = scan_cache::get_cache_directory();
+        if let Some(cache_dir) = cache_dir {
+            scan_cache::initial_cache_dir_ingest(&cache_dir);
+            println!("Initial cache ingest completed. Exiting.");
+        } else {
+            println!("Could not find cache directory. Exiting.");
+        }
+        return;
+    }
+
     let mut handles = Vec::new();
 
     handles.push(std::thread::spawn(|| {

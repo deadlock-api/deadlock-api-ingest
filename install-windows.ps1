@@ -253,10 +253,16 @@ function Get-ActualUser {
 function New-DesktopShortcut {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$ExecutablePath
+        [string]$ExecutablePath,
+        [Parameter(Mandatory = $false)]
+        [string]$Arguments = "",
+        [Parameter(Mandatory = $false)]
+        [string]$ShortcutName = $AppName,
+        [Parameter(Mandatory = $false)]
+        [string]$Description = "Deadlock API Ingest - Network packet analyzer for Deadlock game replay data"
     )
 
-    Write-Log -Level 'INFO' "Creating desktop shortcut..."
+    Write-Log -Level 'INFO' "Creating desktop shortcut: $ShortcutName..."
 
     try {
         # Get the actual user (not Administrator)
@@ -278,12 +284,13 @@ function New-DesktopShortcut {
         }
 
         $WshShell = New-Object -ComObject WScript.Shell
-        $ShortcutPath = Join-Path -Path $DesktopPath -ChildPath "$AppName.lnk"
+        $ShortcutPath = Join-Path -Path $DesktopPath -ChildPath "$ShortcutName.lnk"
 
         $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
         $Shortcut.TargetPath = $ExecutablePath
+        $Shortcut.Arguments = $Arguments
         $Shortcut.WorkingDirectory = $InstallDir
-        $Shortcut.Description = "Deadlock API Ingest - Network packet analyzer for Deadlock game replay data"
+        $Shortcut.Description = $Description
         $Shortcut.IconLocation = $ExecutablePath
         $Shortcut.Save()
 
@@ -291,7 +298,7 @@ function New-DesktopShortcut {
         return $true
     }
     catch {
-        $errorMsg = "Failed to create desktop shortcut."
+        $errorMsg = "Failed to create desktop shortcut: $ShortcutName"
         $detailedError = "Error: $($_.Exception.Message)`n`nThis is not critical for the main application."
         Write-Log -Level 'ERROR' $errorMsg
         Write-Log -Level 'WARN' "Continuing installation without desktop shortcut."
@@ -678,10 +685,19 @@ try {
         Write-Host ""
 
         if ($createShortcut) {
+            # Create main shortcut
             New-DesktopShortcut -ExecutablePath $downloadPath
-            Write-Host "You can start the application using the desktop shortcut." -ForegroundColor White
+
+            # Create "once" shortcut for initial cache ingest only
+            New-DesktopShortcut -ExecutablePath $downloadPath `
+                -Arguments "--once" `
+                -ShortcutName "$AppName (Once)" `
+                -Description "Deadlock API Ingest - Run once to ingest existing cache files only"
+
+            Write-Host "Desktop shortcuts created:" -ForegroundColor White
         } else {
             Write-Host "You can manually start the application by running: $downloadPath" -ForegroundColor White
+            Write-Host "To run once (ingest existing cache only): $downloadPath --once" -ForegroundColor White
         }
 
         Write-Host "To enable auto-start later, re-run this installer." -ForegroundColor White
