@@ -144,6 +144,7 @@ jobs:
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           failOnWarnings: 'false'
+          sendComment: 'false'
 
   build:
     name: Build
