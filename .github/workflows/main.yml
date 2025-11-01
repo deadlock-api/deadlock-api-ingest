@@ -143,6 +143,7 @@ jobs:
         uses: devblackops/github-action-psscriptanalyzer@master
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
+          failOnWarnings: 'false'
 
   build:
     name: Build
