@@ -25,7 +25,7 @@ pkgs.stdenv.mkDerivation rec {
   '';
 
   meta = {
-    description = "A network packet capture tool that monitors HTTP traffic for Deadlock game replay files and ingests metadata to the Deadlock API.";
+    description = "Monitors your Steam HTTP cache for Deadlock game replay files and automatically submits match metadata to the Deadlock API";
     homepage = "https://github.com/deadlock-api/deadlock-api-ingest";
     license = pkgs.lib.licenses.mit;
     # maintainers = with pkgs.lib.maintainers; [ ];

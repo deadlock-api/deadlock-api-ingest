@@ -200,10 +200,8 @@ Type=Application
 Name=$shortcut_name
 Comment=$comment
 Exec=$exec_line
-Icon=network-workgroup
 Terminal=false
-Categories=Network;System;
-Keywords=deadlock;api;network;packet;
+Keywords=deadlock;api;steam;
 EOF
 
     chmod 644 "$desktop_file"
@@ -243,9 +241,7 @@ manage_service() {
             cat > "$SYSTEMD_SERVICE_FILE" << EOF
 [Unit]
 Description=Deadlock API Ingest - Monitors Steam cache for match replays
-Documentation=https://github.com/$GITHUB_REPO
-After=network.target
-Wants=network.target
+Documentation=https://github.com/deadlock-api/deadlock-api-ingest
 
 [Service]
 Type=simple

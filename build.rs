@@ -12,7 +12,7 @@ fn main() {
             .set("ProductName", "Deadlock API Ingest")
             .set(
                 "FileDescription",
-                "Network packet analyzer for Deadlock game replay data",
+                "Monitors your Steam HTTP cache for Deadlock game replay files and automatically submits match metadata to the Deadlock API",
             )
             .set("CompanyName", "Deadlock API")
             .set(

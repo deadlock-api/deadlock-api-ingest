@@ -61,8 +61,6 @@ Example systemd user service file (`~/.config/systemd/user/deadlock-api-ingest.s
 [Unit]
 Description=Deadlock API Ingest Service
 Documentation=https://github.com/deadlock-api/deadlock-api-ingest
-After=network.target
-Wants=network.target
 
 [Service]
 Type=simple
@@ -127,7 +125,7 @@ If you prefer to install manually, you can download the appropriate binary from 
 
 ## Privacy & Security
 
-- Only reads Steam's local cache files - does not capture network traffic
+- Only reads Steam's local cache files
 - Only extracts match IDs and salts from replay file URLs
 - **No Personal Data**: Does not access, store, or transmit any personal information or game data
 - **Read-Only Access**: Only reads from Steam's cache directory - never modifies files
