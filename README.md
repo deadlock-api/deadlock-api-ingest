@@ -10,13 +10,13 @@ The application scans Steam's local HTTP cache directory (`Steam/appcache/httpca
 - 🔒 **Privacy-focused**: Only reads Steam's local cache files
 - ⚡ **Lightweight**: Minimal CPU and memory usage
 - 🔄 **Automatic**: Continuously monitors for new matches as you play
-- 📦 **No admin required**: Installs to user directory with standard permissions
+- 📦 **Runs without admin**: Application runs with standard user permissions (admin only needed for auto-start setup on Windows)
 
 ## Quick Installation
 
 ### Windows (PowerShell)
 
-**No administrator privileges required!** Run this command in PowerShell:
+Run this command in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install-windows.ps1 | iex
@@ -29,9 +29,11 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/deadlock-api/deadlock-
 .\install-windows.ps1
 ```
 
+> **⚠️ Auto-Start Permissions**: If you want the application to start automatically on system boot, you'll need to run PowerShell as Administrator. However, **the application itself runs without admin privileges** - you only need admin rights to create the scheduled task for auto-start. If you run the installer without admin rights, you can still install and run the application manually.
+
 ### Linux (Bash)
 
-**No sudo/root privileges required!** Run this command:
+Run this command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install-linux.sh | bash
