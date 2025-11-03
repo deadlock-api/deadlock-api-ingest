@@ -369,82 +369,20 @@ main() {
     ln -sf "$final_executable_path" "$bin_symlink"
     log "SUCCESS" "Application installed successfully."
 
-    # Create uninstall script
-    log "INFO" "Creating uninstall script..."
+    # Copy uninstall script
+    log "INFO" "Copying uninstall script..."
     local uninstall_script_path="$INSTALL_DIR/uninstall.sh"
+    local source_uninstall_script
+    source_uninstall_script="$(dirname "$0")/uninstall-linux.sh"
 
-    cat > "$uninstall_script_path" << 'EOF'
-#!/bin/bash
-# Deadlock API Ingest - Uninstall Script
-# This script removes the application and all related components
-
-set -e
-
-APP_NAME="deadlock-api-ingest"
-SERVICE_NAME="$APP_NAME"
-
-echo "Uninstalling Deadlock API Ingest..."
-echo ""
-
-# Stop and disable user service
-echo "Removing systemd user service..."
-systemctl --user stop "$SERVICE_NAME" 2>/dev/null || true
-systemctl --user disable "$SERVICE_NAME" 2>/dev/null || true
-
-# Remove systemd user unit files
-echo "Removing service files..."
-rm -f ~/.config/systemd/user/"$SERVICE_NAME".service
-
-# Reload systemd user state
-systemctl --user daemon-reload 2>/dev/null || true
-systemctl --user reset-failed 2>/dev/null || true
-
-# Clean up old system-level installations (if they exist)
-echo "Checking for old system-level installations..."
-if systemctl list-unit-files "$SERVICE_NAME.service" 2>/dev/null | grep -q "$SERVICE_NAME.service" || \
-   [[ -f /etc/systemd/system/"$SERVICE_NAME".service ]] || \
-   [[ -f /etc/systemd/system/"$SERVICE_NAME"-updater.service ]] || \
-   [[ -f /etc/systemd/system/"$SERVICE_NAME"-updater.timer ]]; then
-    echo ""
-    echo "Old system-level services detected. Attempting to remove..."
-    echo "You may be prompted for your password (sudo)."
-    echo ""
-
-    sudo systemctl stop "$SERVICE_NAME" 2>/dev/null || true
-    sudo systemctl disable "$SERVICE_NAME" 2>/dev/null || true
-
-    sudo systemctl stop "$SERVICE_NAME"-updater.timer 2>/dev/null || true
-    sudo systemctl disable "$SERVICE_NAME"-updater.timer 2>/dev/null || true
-    sudo systemctl stop "$SERVICE_NAME"-updater.service 2>/dev/null || true
-    sudo systemctl disable "$SERVICE_NAME"-updater.service 2>/dev/null || true
-
-    sudo rm -f /etc/systemd/system/"$SERVICE_NAME".service 2>/dev/null || true
-    sudo rm -f /etc/systemd/system/"$SERVICE_NAME"-updater.service 2>/dev/null || true
-    sudo rm -f /etc/systemd/system/"$SERVICE_NAME"-updater.timer 2>/dev/null || true
-
-    sudo systemctl daemon-reload 2>/dev/null || true
-    sudo systemctl reset-failed 2>/dev/null || true
-
-    echo "Old system-level services removed."
-fi
-
-# Remove desktop shortcuts
-echo "Removing desktop shortcuts..."
-rm -f ~/.local/share/applications/"$APP_NAME".desktop
-rm -f ~/.local/share/applications/"$APP_NAME"-once.desktop
-
-# Remove installation and symlink
-echo "Removing installation files..."
-rm -f ~/.local/bin/"$APP_NAME"
-rm -rf ~/.local/share/"$APP_NAME"
-
-echo ""
-echo "Uninstallation complete!"
-echo ""
-EOF
-
-    chmod +x "$uninstall_script_path"
-    log "SUCCESS" "Uninstall script created at: $uninstall_script_path"
+    if [[ -f "$source_uninstall_script" ]]; then
+        cp "$source_uninstall_script" "$uninstall_script_path"
+        chmod +x "$uninstall_script_path"
+        log "SUCCESS" "Uninstall script copied to: $uninstall_script_path"
+    else
+        log "WARN" "Source uninstall script not found at: $source_uninstall_script"
+        log "INFO" "You can download it from the repository if needed."
+    fi
 
     # Create the main service (but don't enable/start it yet)
     manage_service "create" "$final_executable_path"
