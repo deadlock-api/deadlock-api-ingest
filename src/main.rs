@@ -17,7 +17,8 @@ mod utils;
 
 fn main() {
     let Ok(steam_dir) = steamlocate::SteamDir::locate() else {
-        eprintln!("Could not find Steam directory. Exiting.");
+        eprintln!("Could not find Steam directory. Waiting 30s before exiting.");
+        std::thread::sleep(core::time::Duration::from_secs(30));
         return;
     };
     let steam_path = steam_dir.path();
