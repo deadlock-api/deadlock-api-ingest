@@ -16,24 +16,23 @@ mod scan_cache;
 mod utils;
 
 fn main() {
-    let once_mode = std::env::args().any(|arg| arg == "--once");
+    let Ok(steam_dir) = steamlocate::SteamDir::locate() else {
+        eprintln!("Could not find Steam directory. Exiting.");
+        return;
+    };
+    let steam_path = steam_dir.path();
+    let cache_dir = steam_path.join("appcache").join("httpcache");
 
-    let cache_dir = scan_cache::get_cache_directory();
-    if let Some(cache_dir) = cache_dir {
-        if once_mode {
-            println!("Running in once mode: performing initial cache ingest only");
-            scan_cache::initial_cache_dir_ingest(&cache_dir);
-            println!("Initial cache ingest completed. Exiting.");
-        }
+    scan_cache::initial_cache_dir_ingest(&cache_dir);
 
-        scan_cache::initial_cache_dir_ingest(&cache_dir);
-        loop {
-            if let Err(e) = scan_cache::watch_cache_dir(&cache_dir) {
-                eprintln!("Error in cache watcher: {e:?}");
-            }
-            std::thread::sleep(core::time::Duration::from_secs(10));
+    if std::env::args().any(|arg| arg == "--once") {
+        std::process::exit(0);
+    }
+
+    loop {
+        if let Err(e) = scan_cache::watch_cache_dir(&cache_dir) {
+            eprintln!("Error in cache watcher: {e:?}");
         }
-    } else {
-        eprintln!("Could not find cache directory. Exiting.");
+        std::thread::sleep(core::time::Duration::from_secs(10));
     }
 }
