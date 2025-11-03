@@ -314,23 +314,6 @@ try {
         }
     }
 
-    # Remove any remaining old scheduled tasks (in case uninstall script didn't exist or failed)
-    Write-InstallLog -Level 'INFO' "Cleaning up any remaining old installations..."
-    $oldTasks = @("deadlock-api-ingest", "deadlock-api-ingest-Watchdog", "deadlock-api-ingest-updater")
-
-    foreach ($taskName in $oldTasks) {
-        try {
-            $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-            if ($task) {
-                Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-            }
-        }
-        catch {
-            # Silently continue if task removal fails
-        }
-    }
-
     Write-InstallLog -Level 'INFO' "Preparing installation environment..."
 
     try {
