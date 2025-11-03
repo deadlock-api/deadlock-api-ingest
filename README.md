@@ -1,6 +1,16 @@
 # Deadlock API Ingest
 
-A network packet capture tool that monitors HTTP traffic for Deadlock game replay files and ingests metadata to the Deadlock API.
+A lightweight background tool that monitors your Steam HTTP cache for Deadlock game replay files and automatically submits match metadata to the Deadlock API. This helps build a comprehensive database of Deadlock matches for the community.
+
+## How It Works
+
+The application scans Steam's local HTTP cache directory (`Steam/appcache/httpcache/`) for Deadlock replay URLs (`.meta.bz2` and `.dem.bz2` files). When it finds replay file references, it extracts the match IDs and salts, then submits them to the Deadlock API at `api.deadlock-api.com`. This allows the API to fetch and process match data from Valve's servers.
+
+**Key Features:**
+- 🔒 **Privacy-focused**: Only reads Steam's local cache files
+- ⚡ **Lightweight**: Minimal CPU and memory usage
+- 🔄 **Automatic**: Continuously monitors for new matches as you play
+- 📦 **No admin required**: Installs to user directory with standard permissions
 
 ## Quick Installation
 
@@ -117,10 +127,11 @@ If you prefer to install manually, you can download the appropriate binary from 
 
 ## Privacy & Security
 
-- **Local Processing**: All packet analysis is performed locally on your machine
-- **Minimal Data**: Only extracts match metadata (IDs and salts) from replay URLs
-- **No Personal Data**: Does not capture, store, or transmit personal information
-- **Open Source**: Full source code is available for review
+- Only reads Steam's local cache files - does not capture network traffic
+- Only extracts match IDs and salts from replay file URLs
+- **No Personal Data**: Does not access, store, or transmit any personal information or game data
+- **Read-Only Access**: Only reads from Steam's cache directory - never modifies files
+- **Open Source**: Full source code is available for review and audit
 
 ## Contributing
 
