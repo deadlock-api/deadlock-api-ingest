@@ -403,6 +403,35 @@ rm -f ~/.config/systemd/user/"$SERVICE_NAME".service
 systemctl --user daemon-reload 2>/dev/null || true
 systemctl --user reset-failed 2>/dev/null || true
 
+# Clean up old system-level installations (if they exist)
+echo "Checking for old system-level installations..."
+if systemctl list-unit-files "$SERVICE_NAME.service" 2>/dev/null | grep -q "$SERVICE_NAME.service" || \
+   [[ -f /etc/systemd/system/"$SERVICE_NAME".service ]] || \
+   [[ -f /etc/systemd/system/"$SERVICE_NAME"-updater.service ]] || \
+   [[ -f /etc/systemd/system/"$SERVICE_NAME"-updater.timer ]]; then
+    echo ""
+    echo "Old system-level services detected. Attempting to remove..."
+    echo "You may be prompted for your password (sudo)."
+    echo ""
+
+    sudo systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    sudo systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+
+    sudo systemctl stop "$SERVICE_NAME"-updater.timer 2>/dev/null || true
+    sudo systemctl disable "$SERVICE_NAME"-updater.timer 2>/dev/null || true
+    sudo systemctl stop "$SERVICE_NAME"-updater.service 2>/dev/null || true
+    sudo systemctl disable "$SERVICE_NAME"-updater.service 2>/dev/null || true
+
+    sudo rm -f /etc/systemd/system/"$SERVICE_NAME".service 2>/dev/null || true
+    sudo rm -f /etc/systemd/system/"$SERVICE_NAME"-updater.service 2>/dev/null || true
+    sudo rm -f /etc/systemd/system/"$SERVICE_NAME"-updater.timer 2>/dev/null || true
+
+    sudo systemctl daemon-reload 2>/dev/null || true
+    sudo systemctl reset-failed 2>/dev/null || true
+
+    echo "Old system-level services removed."
+fi
+
 # Remove desktop shortcuts
 echo "Removing desktop shortcuts..."
 rm -f ~/.local/share/applications/"$APP_NAME".desktop

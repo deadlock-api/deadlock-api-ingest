@@ -367,10 +367,16 @@ try {
 Write-Host "Uninstalling Deadlock API Ingest..." -ForegroundColor Yellow
 Write-Host ""
 
-# Stop and remove scheduled task
-Write-Host "Removing scheduled task..." -ForegroundColor Cyan
+# Stop and remove all scheduled tasks (current and old versions)
+Write-Host "Removing scheduled tasks..." -ForegroundColor Cyan
 Stop-ScheduledTask -TaskName "$AppName" -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName "$AppName" -Confirm:`$false -ErrorAction SilentlyContinue
+
+Stop-ScheduledTask -TaskName "$AppName-Watchdog" -ErrorAction SilentlyContinue
+Unregister-ScheduledTask -TaskName "$AppName-Watchdog" -Confirm:`$false -ErrorAction SilentlyContinue
+
+Stop-ScheduledTask -TaskName "$AppName-updater" -ErrorAction SilentlyContinue
+Unregister-ScheduledTask -TaskName "$AppName-updater" -Confirm:`$false -ErrorAction SilentlyContinue
 
 # Stop any running process
 Write-Host "Stopping running processes..." -ForegroundColor Cyan
