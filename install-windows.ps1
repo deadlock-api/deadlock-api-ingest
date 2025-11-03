@@ -610,8 +610,8 @@ if (-not $script:HasErrors) {
     Write-Host "========================================" -ForegroundColor Yellow
     Write-Host " "
     Write-InstallLog -Level 'WARN' "Installation completed but some non-critical components failed:"
-    foreach ($error in $script:ErrorDetails) {
-        Write-Host "  - $error" -ForegroundColor Yellow
+    foreach ($errorDetail in $script:ErrorDetails) {
+        Write-Host "  - $errorDetail" -ForegroundColor Yellow
     }
     Write-Host " "
     Write-InstallLog -Level 'INFO' "The main application should still work. Check the log file for details: $LogFile"
