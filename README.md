@@ -6,7 +6,7 @@ A network packet capture tool that monitors HTTP traffic for Deadlock game repla
 
 ### Windows (PowerShell)
 
-Run this command in an **elevated PowerShell** (Run as Administrator):
+**No administrator privileges required!** Run this command in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install-windows.ps1 | iex
@@ -21,10 +21,10 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/deadlock-api/deadlock-
 
 ### Linux (Bash)
 
-Run this command with **sudo privileges**:
+**No sudo/root privileges required!** Run this command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install-linux.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install-linux.sh | bash
 ```
 
 Or download and run manually:
@@ -32,20 +32,20 @@ Or download and run manually:
 ```bash
 wget https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install-linux.sh
 chmod +x install-linux.sh
-sudo ./install-linux.sh
+./install-linux.sh
 ```
 
-> **Note**: The installation scripts automatically download the latest release binaries from GitHub and set up the application as a system service.
+> **Note**: The installation scripts automatically download the latest release binaries from GitHub and set up the application to run on user login. The application installs to your user directory and does not require elevated privileges.
 
 ### NixOS
 
 You can add it as a flake and add systemd service files so it will run on boot, or simply run the binary whenever you need it
 
 ```
-sudo nix run github:deadlock-api/deadlock-api-ingest
+nix run github:deadlock-api/deadlock-api-ingest
 ```
 
-Example systemd service file:
+Example systemd user service file (`~/.config/systemd/user/deadlock-api-ingest.service`):
 
 ```toml
 [Unit]
@@ -56,8 +56,6 @@ Wants=network.target
 
 [Service]
 Type=simple
-User=root
-Group=root
 ExecStart=/nix/store/...-deadlock-api-ingest/bin/deadlock-api-ingest
 Restart=on-failure
 RestartSec=10
@@ -66,69 +64,27 @@ StandardError=journal
 SyslogIdentifier=deadlock-api-ingest
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 ```
+
+Then enable and start with: `systemctl --user enable --now deadlock-api-ingest`
 
 ## Uninstallation
 
+The installer automatically creates an uninstall script next to the binary.
+
 ### Windows
+Simply run the uninstall script:
 ```powershell
-# Stop and remove scheduled tasks (main, watchdog, and updater)
-Stop-ScheduledTask -TaskName "deadlock-api-ingest" -ErrorAction SilentlyContinue
-Unregister-ScheduledTask -TaskName "deadlock-api-ingest" -Confirm:$false -ErrorAction SilentlyContinue
-
-Stop-ScheduledTask -TaskName "deadlock-api-ingest-Watchdog" -ErrorAction SilentlyContinue
-Unregister-ScheduledTask -TaskName "deadlock-api-ingest-Watchdog" -Confirm:$false -ErrorAction SilentlyContinue
-
-Stop-ScheduledTask -TaskName "deadlock-api-ingest-updater" -ErrorAction SilentlyContinue
-Unregister-ScheduledTask -TaskName "deadlock-api-ingest-updater" -Confirm:$false -ErrorAction SilentlyContinue
-
-# Stop any running process (if still running)
-Stop-Process -Name "deadlock-api-ingest" -Force -ErrorAction SilentlyContinue
-
-# Remove desktop shortcuts (if created)
-Remove-Item "$env:Public\Desktop\deadlock-api-ingest.lnk" -Force -ErrorAction SilentlyContinue
-Remove-Item "$env:Public\Desktop\deadlock-api-ingest (Once).lnk" -Force -ErrorAction SilentlyContinue
-
-# Remove installation directory and related data
-Remove-Item "$env:ProgramFiles\deadlock-api-ingest" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item "$env:ProgramData\deadlock-api-ingest" -Recurse -Force -ErrorAction SilentlyContinue
+& "$env:LOCALAPPDATA\deadlock-api-ingest\uninstall.ps1"
 ```
 
+Or navigate to `%LOCALAPPDATA%\deadlock-api-ingest\` and double-click `uninstall.ps1`.
+
 ### Linux
+Simply run the uninstall script:
 ```bash
-# Stop and disable main service
-sudo systemctl stop deadlock-api-ingest || true
-sudo systemctl disable deadlock-api-ingest || true
-
-# Stop and disable automatic updater (if installed)
-sudo systemctl stop deadlock-api-ingest-updater.timer || true
-sudo systemctl disable deadlock-api-ingest-updater.timer || true
-sudo systemctl stop deadlock-api-ingest-updater.service || true
-sudo systemctl disable deadlock-api-ingest-updater.service || true
-
-# Remove systemd unit files
-sudo rm -f /etc/systemd/system/deadlock-api-ingest.service
-sudo rm -f /etc/systemd/system/deadlock-api-ingest-updater.service
-sudo rm -f /etc/systemd/system/deadlock-api-ingest-updater.timer
-
-# Reload systemd state
-sudo systemctl daemon-reload
-sudo systemctl reset-failed || true
-
-# Remove desktop shortcuts (if created)
-sudo rm -f /usr/share/applications/deadlock-api-ingest.desktop
-sudo rm -f /usr/share/applications/deadlock-api-ingest-once.desktop
-# Also check user-specific locations (replace 'username' with actual username)
-rm -f ~/.local/share/applications/deadlock-api-ingest.desktop
-rm -f ~/.local/share/applications/deadlock-api-ingest-once.desktop
-
-# Remove installation and symlink
-sudo rm -rf /opt/deadlock-api-ingest
-sudo rm -f /usr/local/bin/deadlock-api-ingest
-
-# Optional: remove updater log file (if present)
-sudo rm -f /var/log/deadlock-api-ingest-updater.log
+~/.local/share/deadlock-api-ingest/uninstall.sh
 ```
 
 ## Automated Releases
@@ -150,14 +106,14 @@ If you prefer to install manually, you can download the appropriate binary from 
 
 ### Windows Manual Setup
 1. Download `deadlock-api-ingest-windows-latest.exe`
-2. Place it in `C:\Program Files\deadlock-api-ingest\`
-3. Create a Windows service using `sc.exe` or install as a startup program
+2. Place it in `%LOCALAPPDATA%\deadlock-api-ingest\`
+3. Create a scheduled task to run on user login (no admin required)
 
 ### Linux Manual Setup
 1. Download `deadlock-api-ingest-ubuntu-latest`
-2. Place it in `/opt/deadlock-api-ingest/` or `/usr/local/bin/`
+2. Place it in `~/.local/share/deadlock-api-ingest/` or `~/.local/bin/`
 3. Make it executable: `chmod +x deadlock-api-ingest`
-4. Create a systemd service file in `/etc/systemd/system/`
+4. Create a systemd user service file in `~/.config/systemd/user/`
 
 ## Privacy & Security
 

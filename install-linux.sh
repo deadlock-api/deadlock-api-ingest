@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Deadlock API Ingest - Linux Installation Script
-# This script downloads and installs the deadlock-api-ingest application as a systemd service
+# This script downloads and installs the deadlock-api-ingest application as a systemd user service
 
 set -euo pipefail
 
@@ -10,15 +10,16 @@ APP_NAME="deadlock-api-ingest"
 GITHUB_REPO="deadlock-api/deadlock-api-ingest"
 ASSET_KEYWORD="ubuntu-latest" # Keyword to find in the release asset filename
 
-# Installation paths
-INSTALL_DIR="/opt/$APP_NAME"
-BIN_DIR="/usr/local/bin"
+# Installation paths (User-level, no root required)
+INSTALL_DIR="$HOME/.local/share/$APP_NAME"
+BIN_DIR="$HOME/.local/bin"
 FINAL_EXECUTABLE_NAME=$APP_NAME
 
 # Service and logging
 SERVICE_NAME=$APP_NAME
 LOG_FILE="/tmp/${APP_NAME}-install.log"
-SYSTEMD_SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
+SYSTEMD_SERVICE_FILE="$SYSTEMD_USER_DIR/${SERVICE_NAME}.service"
 
 
 
@@ -71,54 +72,39 @@ execute_quietly() {
     fi
 }
 
-# Function to check if running with root/sudo privileges
-check_privileges() {
-    if [[ $EUID -ne 0 ]]; then
-        log "INFO" "This script requires root privileges. Attempting to restart with sudo..."
-        if ! command -v sudo >/dev/null 2>&1; then
-            log "ERROR" "sudo is not available. Please run this script as root."
-            exit 1
-        fi
-        exec sudo -- "$0" "$@"
-    fi
-}
-
-# Function to install required dependencies
-install_dependencies() {
-    local pkgs_to_install=()
+# Function to check for required dependencies
+check_dependencies() {
+    local missing_deps=()
     for pkg in curl wget jq; do
-        command -v "$pkg" >/dev/null 2>&1 || pkgs_to_install+=("$pkg")
+        command -v "$pkg" >/dev/null 2>&1 || missing_deps+=("$pkg")
     done
 
-    if [[ ${#pkgs_to_install[@]} -eq 0 ]]; then
+    if [[ ${#missing_deps[@]} -eq 0 ]]; then
         log "SUCCESS" "All dependencies are already installed."
-        return
+        return 0
     fi
 
-    log "INFO" "Installing dependencies: ${pkgs_to_install[*]}"
+    log "WARN" "Missing dependencies: ${missing_deps[*]}"
+    log "INFO" "Please install them using your package manager. For example:"
+
     if command -v apt-get >/dev/null 2>&1; then
-        execute_quietly apt-get update -qq
-        execute_quietly apt-get install -y "${pkgs_to_install[@]}"
+        log "INFO" "  sudo apt-get install ${missing_deps[*]}"
     elif command -v dnf >/dev/null 2>&1; then
-        execute_quietly dnf install -y "${pkgs_to_install[@]}"
+        log "INFO" "  sudo dnf install ${missing_deps[*]}"
     elif command -v yum >/dev/null 2>&1; then
-        execute_quietly yum install -y "${pkgs_to_install[@]}"
+        log "INFO" "  sudo yum install ${missing_deps[*]}"
     elif command -v pacman >/dev/null 2>&1; then
-        execute_quietly pacman -Sy --noconfirm "${pkgs_to_install[@]}"
+        log "INFO" "  sudo pacman -S ${missing_deps[*]}"
     elif command -v apk >/dev/null 2>&1; then
-        execute_quietly apk add --no-cache "${pkgs_to_install[@]}"
+        log "INFO" "  sudo apk add ${missing_deps[*]}"
     elif command -v zypper >/dev/null 2>&1; then
-        execute_quietly zypper install -y "${pkgs_to_install[@]}"
-    elif command -v emerge >/dev/null 2>&1; then
-        execute_quietly emerge -v "${pkgs_to_install[@]}"
-    elif command -v xbps-install >/dev/null 2>&1; then
-        execute_quietly xbps-install -y "${pkgs_to_install[@]}"
+        log "INFO" "  sudo zypper install ${missing_deps[*]}"
     else
-        log "WARN" "Could not detect package manager. Please install missing packages manually: ${pkgs_to_install[*]}"
-        return
+        log "INFO" "  Use your system's package manager to install: ${missing_deps[*]}"
     fi
 
-    log "SUCCESS" "Dependencies installed successfully."
+    log "ERROR" "Cannot proceed without required dependencies."
+    exit 1
 }
 
 # Function to get latest release info from GitHub API
@@ -144,8 +130,6 @@ get_latest_release() {
     version=$(echo "$response" | jq -r '.tag_name')
     download_url=$(echo "$asset_info" | jq -r '.browser_download_url')
     size=$(echo "$asset_info" | jq -r '.size')
-
-    log "INFO" "Found version: $version"
 
     # This is the only line that should print to stdout, to be captured by the calling variable.
     echo "$version|$download_url|$size"
@@ -179,75 +163,21 @@ download_file() {
     fi
 }
 
-
-
-# Function to get the actual user who invoked sudo (not root)
-get_actual_user() {
-    local actual_user=""
-
-    # Method 1: Check SUDO_USER environment variable
-    if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
-        actual_user="$SUDO_USER"
-    # Method 2: Check who is logged in (for direct root login)
-    elif [[ -n "${USER:-}" && "$USER" != "root" ]]; then
-        actual_user="$USER"
-    # Method 3: Try to get the user from the login session
-    else
-        actual_user=$(who | awk '{print $1}' | sort -u | grep -v "^root$" | head -n 1)
-    fi
-
-    # Fallback to root if we couldn't determine the user
-    if [[ -z "$actual_user" ]]; then
-        actual_user="root"
-    fi
-
-    log "INFO" "Detected user: $actual_user"
-    echo "$actual_user"
-}
-
 # Function to create desktop shortcut
 create_desktop_shortcut() {
     local executable_path="$1"
     local arguments="${2:-}"
     local shortcut_name="${3:-Deadlock API Ingest}"
-    local comment="${4:-Network packet analyzer for Deadlock game replay data}"
+    local comment="${4:-Monitors Steam cache for Deadlock match replays}"
 
     log "INFO" "Creating desktop shortcut: $shortcut_name..."
 
-    # Get the actual user (not root)
-    local actual_user
-    actual_user=$(get_actual_user)
+    # Use the current user's local applications directory
+    local desktop_dir="$HOME/.local/share/applications"
 
-    # Determine the user's home directory
-    local user_home
-    if [[ "$actual_user" == "root" ]]; then
-        user_home="/root"
-    else
-        user_home=$(eval echo "~$actual_user")
-    fi
-
-    if [[ ! -d "$user_home" ]]; then
-        log "WARN" "Could not find home directory for user: $actual_user"
-        return 1
-    fi
-
-    # Try to find the user's local applications directory first
-    local desktop_dir=""
-    local user_desktop_dir="$user_home/.local/share/applications"
-
-    if [[ -d "$user_desktop_dir" ]] || mkdir -p "$user_desktop_dir" 2>/dev/null; then
-        desktop_dir="$user_desktop_dir"
-    else
-        # Fallback to system-wide directory
-        if [[ -d "/usr/share/applications" ]]; then
-            desktop_dir="/usr/share/applications"
-        elif [[ -d "/usr/local/share/applications" ]]; then
-            desktop_dir="/usr/local/share/applications"
-        fi
-    fi
-
-    if [[ -z "$desktop_dir" ]]; then
-        log "WARN" "Could not find applications directory. Desktop shortcut will not be created."
+    # Create the directory if it doesn't exist
+    if ! mkdir -p "$desktop_dir" 2>/dev/null; then
+        log "WARN" "Could not create applications directory. Desktop shortcut will not be created."
         return 1
     fi
 
@@ -278,12 +208,6 @@ EOF
 
     chmod 644 "$desktop_file"
 
-    # If we created it in the user's directory, set proper ownership
-    if [[ "$desktop_dir" == "$user_desktop_dir" && "$actual_user" != "root" ]]; then
-        chown "$actual_user:$actual_user" "$desktop_file" 2>/dev/null || true
-        chown "$actual_user:$actual_user" "$user_desktop_dir" 2>/dev/null || true
-    fi
-
     # Try to update desktop database if available
     if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database "$desktop_dir" 2>> "$LOG_FILE" || true
@@ -299,31 +223,32 @@ manage_service() {
 
     case "$action" in
         "remove")
-            if systemctl is-active --quiet "$SERVICE_NAME"; then
-                execute_quietly systemctl stop "$SERVICE_NAME"
+            if systemctl --user is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+                execute_quietly systemctl --user stop "$SERVICE_NAME"
             fi
-            if systemctl is-enabled --quiet "$SERVICE_NAME"; then
-                execute_quietly systemctl disable "$SERVICE_NAME"
+            if systemctl --user is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
+                execute_quietly systemctl --user disable "$SERVICE_NAME"
             fi
             if [[ -f "$SYSTEMD_SERVICE_FILE" ]]; then
                 rm -f "$SYSTEMD_SERVICE_FILE"
             fi
-            systemctl daemon-reload 2>> "$LOG_FILE"
+            systemctl --user daemon-reload 2>> "$LOG_FILE" || true
             ;;
         "create")
             local executable_path="$2"
 
+            # Create systemd user directory if it doesn't exist
+            mkdir -p "$SYSTEMD_USER_DIR"
+
             cat > "$SYSTEMD_SERVICE_FILE" << EOF
 [Unit]
-Description=Deadlock API Ingest Service
+Description=Deadlock API Ingest - Monitors Steam cache for match replays
 Documentation=https://github.com/$GITHUB_REPO
 After=network.target
 Wants=network.target
 
 [Service]
 Type=simple
-User=root
-Group=root
 ExecStart=$executable_path
 Restart=on-failure
 RestartSec=10
@@ -333,29 +258,27 @@ SyslogIdentifier=$SERVICE_NAME
 
 # Security Hardening
 NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
 PrivateTmp=true
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 EOF
             chmod 644 "$SYSTEMD_SERVICE_FILE"
-            systemctl daemon-reload 2>> "$LOG_FILE"
-            log "SUCCESS" "System service created."
+            systemctl --user daemon-reload 2>> "$LOG_FILE"
+            log "SUCCESS" "User service created."
             ;;
         "start")
-            execute_quietly systemctl enable "$SERVICE_NAME"
-            execute_quietly systemctl start "$SERVICE_NAME"
+            execute_quietly systemctl --user enable "$SERVICE_NAME"
+            execute_quietly systemctl --user start "$SERVICE_NAME"
 
             sleep 3
 
-            if systemctl is-active --quiet "$SERVICE_NAME"; then
+            if systemctl --user is-active --quiet "$SERVICE_NAME"; then
                 log "SUCCESS" "Application service started successfully."
             else
                 log "ERROR" "Service failed to start. Please check the logs."
-                log "INFO" "To check status: systemctl status $SERVICE_NAME"
-                log "INFO" "To view logs: journalctl -u $SERVICE_NAME -n 50"
+                log "INFO" "To check status: systemctl --user status $SERVICE_NAME"
+                log "INFO" "To view logs: journalctl --user -u $SERVICE_NAME -n 50"
                 exit 1
             fi
             ;;
@@ -417,8 +340,7 @@ main() {
     log "INFO" "Starting Deadlock API Ingest installation..."
     log "INFO" "Log file is available at: $LOG_FILE"
 
-    check_privileges "$@"
-    install_dependencies
+    check_dependencies
 
     local release_info
     release_info=$(get_latest_release)
@@ -444,15 +366,60 @@ main() {
     mv "$temp_download_path" "$final_executable_path"
     chmod +x "$final_executable_path"
 
+    # Create bin directory if it doesn't exist
+    mkdir -p "$BIN_DIR"
+
     local bin_symlink="$BIN_DIR/$FINAL_EXECUTABLE_NAME"
     ln -sf "$final_executable_path" "$bin_symlink"
     log "SUCCESS" "Application installed successfully."
 
-    # Store version information
-    store_version_info "$version"
+    # Create uninstall script
+    log "INFO" "Creating uninstall script..."
+    local uninstall_script_path="$INSTALL_DIR/uninstall.sh"
 
-    # Create configuration file
-    create_config_file
+    cat > "$uninstall_script_path" << 'EOF'
+#!/bin/bash
+# Deadlock API Ingest - Uninstall Script
+# This script removes the application and all related components
+
+set -e
+
+APP_NAME="deadlock-api-ingest"
+SERVICE_NAME="$APP_NAME"
+
+echo "Uninstalling Deadlock API Ingest..."
+echo ""
+
+# Stop and disable user service
+echo "Removing systemd user service..."
+systemctl --user stop "$SERVICE_NAME" 2>/dev/null || true
+systemctl --user disable "$SERVICE_NAME" 2>/dev/null || true
+
+# Remove systemd user unit files
+echo "Removing service files..."
+rm -f ~/.config/systemd/user/"$SERVICE_NAME".service
+
+# Reload systemd user state
+systemctl --user daemon-reload 2>/dev/null || true
+systemctl --user reset-failed 2>/dev/null || true
+
+# Remove desktop shortcuts
+echo "Removing desktop shortcuts..."
+rm -f ~/.local/share/applications/"$APP_NAME".desktop
+rm -f ~/.local/share/applications/"$APP_NAME"-once.desktop
+
+# Remove installation and symlink
+echo "Removing installation files..."
+rm -f ~/.local/bin/"$APP_NAME"
+rm -rf ~/.local/share/"$APP_NAME"
+
+echo ""
+echo "Uninstallation complete!"
+echo ""
+EOF
+
+    chmod +x "$uninstall_script_path"
+    log "SUCCESS" "Uninstall script created at: $uninstall_script_path"
 
     # Create the main service (but don't enable/start it yet)
     manage_service "create" "$final_executable_path"
@@ -460,10 +427,10 @@ main() {
     # Prompt user for auto-start setup
     if prompt_for_autostart; then
         manage_service "start"
-        log "SUCCESS" "Auto-start enabled. The service will start automatically on system boot."
+        log "SUCCESS" "Auto-start enabled. The service will start automatically on user login."
     else
-        log "INFO" "Auto-start disabled. You can start the service manually with: systemctl start $SERVICE_NAME"
-        log "INFO" "To enable auto-start later, run: systemctl enable $SERVICE_NAME"
+        log "INFO" "Auto-start disabled. You can start the service manually with: systemctl --user start $SERVICE_NAME"
+        log "INFO" "To enable auto-start later, run: systemctl --user enable $SERVICE_NAME"
 
         # Offer to create a desktop shortcut instead
         echo >&2
@@ -517,12 +484,12 @@ main() {
             local main_created=false
             local once_created=false
 
-            if create_desktop_shortcut "$final_executable_path" "" "Deadlock API Ingest" "Network packet analyzer for Deadlock game replay data"; then
+            if create_desktop_shortcut "$final_executable_path" "" "Deadlock API Ingest" "Monitors Steam cache for Deadlock match replays"; then
                 main_created=true
             fi
 
             # Create "once" shortcut for initial cache ingest only
-            if create_desktop_shortcut "$final_executable_path" "--once" "Deadlock API Ingest (Once)" "Run once to ingest existing cache files only"; then
+            if create_desktop_shortcut "$final_executable_path" "--once" "Deadlock API Ingest (Once)" "Scan existing Steam cache once and exit"; then
                 once_created=true
             fi
 
@@ -542,7 +509,7 @@ main() {
         fi
     fi
 
-    log "SUCCESS" "🚀 Deadlock API Ingest ($version) has been installed successfully!"
+    log "SUCCESS" "🚀 Deadlock API Ingest has been installed successfully!"
 
     # The final messages should also be sent to stderr to not interfere with any potential scripting.
     {
@@ -550,22 +517,24 @@ main() {
         echo -e "${GREEN}Installation complete.${NC}"
         echo
 
-        if systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
-            echo -e "${GREEN}[+] Auto-start is enabled${NC} - The service will start automatically on system boot."
+        if systemctl --user is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
+            echo -e "${GREEN}[+] Auto-start is enabled${NC} - The service will start automatically on user login."
         else
-            echo -e "${YELLOW}[-] Auto-start is disabled${NC} - The service will not start automatically on system boot."
-            echo -e "  To enable auto-start: ${YELLOW}systemctl enable $SERVICE_NAME${NC}"
+            echo -e "${YELLOW}[-] Auto-start is disabled${NC} - The service will not start automatically on user login."
+            echo -e "  To enable auto-start: ${YELLOW}systemctl --user enable $SERVICE_NAME${NC}"
         fi
         echo
 
         echo -e "You can manage the main service with the following commands:"
-        echo -e "  - Check status:  ${YELLOW}systemctl status $SERVICE_NAME${NC}"
-        echo -e "  - View logs:     ${YELLOW}journalctl -u $SERVICE_NAME -f${NC}"
-        echo -e "  - Stop service:  ${YELLOW}systemctl stop $SERVICE_NAME${NC}"
-        echo -e "  - Start service: ${YELLOW}systemctl start $SERVICE_NAME${NC}"
-        if ! systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
-            echo -e "  - Enable auto-start: ${YELLOW}systemctl enable $SERVICE_NAME${NC}"
+        echo -e "  - Check status:  ${YELLOW}systemctl --user status $SERVICE_NAME${NC}"
+        echo -e "  - View logs:     ${YELLOW}journalctl --user -u $SERVICE_NAME -f${NC}"
+        echo -e "  - Stop service:  ${YELLOW}systemctl --user stop $SERVICE_NAME${NC}"
+        echo -e "  - Start service: ${YELLOW}systemctl --user start $SERVICE_NAME${NC}"
+        if ! systemctl --user is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
+            echo -e "  - Enable auto-start: ${YELLOW}systemctl --user enable $SERVICE_NAME${NC}"
         fi
+        echo
+        echo -e "To uninstall, run: ${YELLOW}$INSTALL_DIR/uninstall.sh${NC}"
         echo
     } >&2
 }
