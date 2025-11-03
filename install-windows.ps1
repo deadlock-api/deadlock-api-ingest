@@ -356,59 +356,27 @@ try {
         $script:ErrorDetails += "File unblock failed (non-critical)"
     }
 
-    # Create uninstall script
-    Write-InstallLog -Level 'INFO' "Creating uninstall script..."
+    # Copy uninstall script
+    Write-InstallLog -Level 'INFO' "Copying uninstall script..."
     $uninstallScriptPath = Join-Path -Path $InstallDir -ChildPath "uninstall.ps1"
-
-    $uninstallScriptContent = @"
-# Deadlock API Ingest - Uninstall Script
-# This script removes the application and all related components
-
-Write-Host "Uninstalling Deadlock API Ingest..." -ForegroundColor Yellow
-Write-Host ""
-
-# Stop and remove all scheduled tasks (current and old versions)
-Write-Host "Removing scheduled tasks..." -ForegroundColor Cyan
-Stop-ScheduledTask -TaskName "$AppName" -ErrorAction SilentlyContinue
-Unregister-ScheduledTask -TaskName "$AppName" -Confirm:`$false -ErrorAction SilentlyContinue
-
-Stop-ScheduledTask -TaskName "$AppName-Watchdog" -ErrorAction SilentlyContinue
-Unregister-ScheduledTask -TaskName "$AppName-Watchdog" -Confirm:`$false -ErrorAction SilentlyContinue
-
-Stop-ScheduledTask -TaskName "$AppName-updater" -ErrorAction SilentlyContinue
-Unregister-ScheduledTask -TaskName "$AppName-updater" -Confirm:`$false -ErrorAction SilentlyContinue
-
-# Stop any running process
-Write-Host "Stopping running processes..." -ForegroundColor Cyan
-Stop-Process -Name "$AppName" -Force -ErrorAction SilentlyContinue
-
-# Remove desktop shortcuts
-Write-Host "Removing desktop shortcuts..." -ForegroundColor Cyan
-Remove-Item "`$env:USERPROFILE\Desktop\$AppName*.lnk" -Force -ErrorAction SilentlyContinue
-
-# Remove installation directory
-Write-Host "Removing installation directory..." -ForegroundColor Cyan
-`$installDir = "$InstallDir"
-Set-Location `$env:TEMP
-Start-Sleep -Seconds 1
-
-Remove-Item "`$installDir" -Recurse -Force -ErrorAction SilentlyContinue
-
-Write-Host ""
-Write-Host "Uninstallation complete!" -ForegroundColor Green
-Write-Host ""
-Write-Host "Press any key to exit..." -ForegroundColor Gray
-`$null = `$Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-"@
+    $sourceUninstallScript = Join-Path -Path $PSScriptRoot -ChildPath "uninstall-windows.ps1"
 
     try {
-        Set-Content -Path $uninstallScriptPath -Value $uninstallScriptContent -Force
-        Write-InstallLog -Level 'SUCCESS' "Uninstall script created at: $uninstallScriptPath"
+        if (Test-Path $sourceUninstallScript) {
+            Copy-Item -Path $sourceUninstallScript -Destination $uninstallScriptPath -Force
+            Write-InstallLog -Level 'SUCCESS' "Uninstall script copied to: $uninstallScriptPath"
+        }
+        else {
+            Write-InstallLog -Level 'WARN' "Source uninstall script not found at: $sourceUninstallScript"
+            Write-InstallLog -Level 'INFO' "You can download it from the repository if needed."
+            $script:HasErrors = $true
+            $script:ErrorDetails += "Uninstall script not found (non-critical)"
+        }
     }
     catch {
-        Write-InstallLog -Level 'WARN' "Failed to create uninstall script, but continuing installation."
+        Write-InstallLog -Level 'WARN' "Failed to copy uninstall script, but continuing installation."
         $script:HasErrors = $true
-        $script:ErrorDetails += "Uninstall script creation failed (non-critical)"
+        $script:ErrorDetails += "Uninstall script copy failed (non-critical)"
     }
 
     Write-InstallLog -Level 'INFO' "Installing application..."
