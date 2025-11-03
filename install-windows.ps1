@@ -1,5 +1,5 @@
 # Deadlock API Ingest - Windows Installation Script
-# This script downloads and installs the application to run automatically on system startup via Task Scheduler.
+# This script downloads and installs the application to run automatically on user login via Task Scheduler.
 
 # Suppress PSScriptAnalyzer warnings for Write-Host in this interactive installation script
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification='Interactive installation script requires colored console output for user experience')]
@@ -11,7 +11,7 @@ $GithubRepo = "deadlock-api/deadlock-api-ingest"
 $AssetKeyword = "windows-latest.exe"
 
 # Installation Paths
-$InstallDir = "$env:ProgramFiles\$AppName"
+$InstallDir = "$env:LOCALAPPDATA\$AppName"
 $FinalExecutableName = "$AppName.exe"
 $LogFile = "$env:TEMP\${AppName}-install.log"
 
@@ -154,21 +154,6 @@ function Invoke-Quietly {
     }
 }
 
-# Function to check for Administrator privileges
-function Test-IsAdmin {
-    try {
-        $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
-        $isAdmin = (New-Object Security.Principal.WindowsPrincipal $currentUser).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-        if (-not $isAdmin) {
-            Invoke-FatalError -ErrorMessage "This script requires Administrator privileges. Please re-run as Administrator." -DetailedError "Right-click on PowerShell and select 'Run as Administrator', then run this script again."
-        }
-        Write-InstallLog -Level 'INFO' "Running with Administrator privileges."
-    }
-    catch {
-        Invoke-FatalError -ErrorMessage "Failed to check Administrator privileges." -DetailedError $_.Exception.Message
-    }
-}
-
 # Function to get the latest release from GitHub
 function Get-LatestRelease {
     Write-InstallLog -Level 'INFO' "Fetching latest release from repository: $GithubRepo"
@@ -190,7 +175,6 @@ function Get-LatestRelease {
             $detailedError = "Available assets are: $availableAssets`n`nThe release may not have been built for Windows, or the asset naming convention has changed."
             Invoke-FatalError -ErrorMessage $errorMsg -DetailedError $detailedError
         }
-        Write-InstallLog -Level 'SUCCESS' "Found version: $($releaseInfo.tag_name)"
         return [PSCustomObject]@{
             Version      = $releaseInfo.tag_name
             DownloadUrl  = $asset.browser_download_url
@@ -199,43 +183,6 @@ function Get-LatestRelease {
     }
     catch {
         Invoke-FatalError -ErrorMessage "Failed to process release information." -DetailedError $_.Exception.Message
-    }
-}
-
-
-
-# Function to get the actual user who invoked the script (not Administrator)
-function Get-ActualUser {
-    try {
-        # Try to get the user from environment variables set by UAC elevation
-        $actualUser = $env:USERNAME
-
-        # If running elevated, try to get the original user
-        if ([Security.Principal.WindowsIdentity]::GetCurrent().Name -match "Administrator") {
-            # Try various methods to get the actual user
-
-            # Method 1: Check USERPROFILE path
-            if ($env:USERPROFILE -notmatch "Administrator") {
-                $actualUser = Split-Path $env:USERPROFILE -Leaf
-            }
-            # Method 2: Get the user who owns the explorer.exe process (usually the logged-in user)
-            else {
-                $explorerProcess = Get-CimInstance Win32_Process -Filter "name = 'explorer.exe'" | Select-Object -First 1
-                if ($explorerProcess) {
-                    $owner = Invoke-CimMethod -InputObject $explorerProcess -MethodName GetOwner
-                    if ($owner.User) {
-                        $actualUser = $owner.User
-                    }
-                }
-            }
-        }
-
-        Write-InstallLog -Level 'INFO' "Detected user: $actualUser"
-        return $actualUser
-    }
-    catch {
-        Write-InstallLog -Level 'WARN' "Could not determine actual user, using current user: $env:USERNAME"
-        return $env:USERNAME
     }
 }
 
@@ -249,26 +196,13 @@ function New-DesktopShortcut {
         [Parameter(Mandatory = $false)]
         [string]$ShortcutName = $AppName,
         [Parameter(Mandatory = $false)]
-        [string]$Description = "Deadlock API Ingest - Network packet analyzer for Deadlock game replay data"
+        [string]$Description = "Deadlock API Ingest - Monitors Steam cache for Deadlock match replays"
     )
 
     Write-InstallLog -Level 'INFO' "Creating desktop shortcut: $ShortcutName..."
 
     try {
-        # Get the actual user (not Administrator)
-        $actualUser = Get-ActualUser
-
-        # Build the path to the user's desktop
-        $userProfile = "C:\Users\$actualUser"
-        if (-not (Test-Path $userProfile)) {
-            # Fallback: try to find the user profile
-            $userProfile = (Get-ChildItem "C:\Users" | Where-Object { $_.Name -eq $actualUser } | Select-Object -First 1).FullName
-            if (-not $userProfile) {
-                throw "Could not find user profile for: $actualUser"
-            }
-        }
-
-        $DesktopPath = Join-Path -Path $userProfile -ChildPath "Desktop"
+        $DesktopPath = [Environment]::GetFolderPath('Desktop')
         if (-not (Test-Path $DesktopPath)) {
             throw "Desktop folder not found at: $DesktopPath"
         }
@@ -319,11 +253,11 @@ function Set-StartupTask {
                 # Define the action (what program to run and its working directory)
                 $taskAction = New-ScheduledTaskAction -Execute $ExecutablePath -WorkingDirectory $InstallDir
 
-                # Define the trigger (when to run it)
-                $taskTrigger = New-ScheduledTaskTrigger -AtStartup
+                # Define the trigger (when to run it - at user logon)
+                $taskTrigger = New-ScheduledTaskTrigger -AtLogOn
 
-                # Define the user and permissions (run as SYSTEM with highest privileges)
-                $taskPrincipal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+                # Define the user and permissions (run as current user with standard privileges)
+                $taskPrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 
                 # Define settings (allow it to run indefinitely, prevent multiple instances)
                 $taskSettings = New-ScheduledTaskSettingsSet `
@@ -334,12 +268,12 @@ function Set-StartupTask {
                     -MultipleInstances IgnoreNew
 
                 # Register the task with the system
-                Register-ScheduledTask -TaskName $AppName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Runs the Deadlock API Ingest application on system startup." | Out-Null
+                Register-ScheduledTask -TaskName $AppName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Monitors Steam cache for Deadlock match replays and submits metadata to the Deadlock API." | Out-Null
 
                 Write-InstallLog -Level 'SUCCESS' "Startup task created successfully."
             }
             catch {
-                Invoke-FatalError -ErrorMessage "Failed to create startup task." -DetailedError "Error: $($_.Exception.Message)`n`nThis could be due to:`n- Insufficient permissions`n- Task Scheduler service not running`n- Conflicting task name`n- System policy restrictions"
+                Invoke-FatalError -ErrorMessage "Failed to create startup task." -DetailedError "Error: $($_.Exception.Message)`n`nThis could be due to:`n- Task Scheduler service not running`n- Conflicting task name`n- System policy restrictions"
             }
         }
     }
@@ -356,7 +290,6 @@ try {
     Write-InstallLog -Level 'INFO' "Starting Deadlock API Ingest installation..."
     Write-InstallLog -Level 'INFO' "Log file is available at: $LogFile"
 
-    Test-IsAdmin
     $release = Get-LatestRelease
 
     # Remove any old scheduled task
@@ -412,6 +345,55 @@ try {
         Write-InstallLog -Level 'WARN' "Failed to unblock downloaded file, but continuing installation."
         $script:HasErrors = $true
         $script:ErrorDetails += "File unblock failed (non-critical)"
+    }
+
+    # Create uninstall script
+    Write-InstallLog -Level 'INFO' "Creating uninstall script..."
+    $uninstallScriptPath = Join-Path -Path $InstallDir -ChildPath "uninstall.ps1"
+
+    $uninstallScriptContent = @"
+# Deadlock API Ingest - Uninstall Script
+# This script removes the application and all related components
+
+Write-Host "Uninstalling Deadlock API Ingest..." -ForegroundColor Yellow
+Write-Host ""
+
+# Stop and remove scheduled task
+Write-Host "Removing scheduled task..." -ForegroundColor Cyan
+Stop-ScheduledTask -TaskName "$AppName" -ErrorAction SilentlyContinue
+Unregister-ScheduledTask -TaskName "$AppName" -Confirm:`$false -ErrorAction SilentlyContinue
+
+# Stop any running process
+Write-Host "Stopping running processes..." -ForegroundColor Cyan
+Stop-Process -Name "$AppName" -Force -ErrorAction SilentlyContinue
+
+# Remove desktop shortcuts
+Write-Host "Removing desktop shortcuts..." -ForegroundColor Cyan
+Remove-Item "`$env:USERPROFILE\Desktop\$AppName*.lnk" -Force -ErrorAction SilentlyContinue
+
+# Remove installation directory
+Write-Host "Removing installation directory..." -ForegroundColor Cyan
+`$installDir = "$InstallDir"
+Set-Location `$env:TEMP
+Start-Sleep -Seconds 1
+
+Remove-Item "`$installDir" -Recurse -Force -ErrorAction SilentlyContinue
+
+Write-Host ""
+Write-Host "Uninstallation complete!" -ForegroundColor Green
+Write-Host ""
+Write-Host "Press any key to exit..." -ForegroundColor Gray
+`$null = `$Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+"@
+
+    try {
+        Set-Content -Path $uninstallScriptPath -Value $uninstallScriptContent -Force
+        Write-InstallLog -Level 'SUCCESS' "Uninstall script created at: $uninstallScriptPath"
+    }
+    catch {
+        Write-InstallLog -Level 'WARN' "Failed to create uninstall script, but continuing installation."
+        $script:HasErrors = $true
+        $script:ErrorDetails += "Uninstall script creation failed (non-critical)"
     }
 
     Write-InstallLog -Level 'INFO' "Installing application..."
@@ -577,7 +559,7 @@ try {
             New-DesktopShortcut -ExecutablePath $downloadPath `
                 -Arguments "--once" `
                 -ShortcutName "$AppName (Once)" `
-                -Description "Deadlock API Ingest - Run once to ingest existing cache files only"
+                -Description "Deadlock API Ingest - Scan existing Steam cache once and exit"
 
             Write-Host "Desktop shortcuts created:" -ForegroundColor White
         } else {
@@ -598,7 +580,7 @@ catch {
 # Display final status
 if (-not $script:HasErrors) {
     Write-Host " "
-    Write-InstallLog -Level 'SUCCESS' "Deadlock API Ingest ($($release.Version)) has been installed successfully!"
+    Write-InstallLog -Level 'SUCCESS' "Deadlock API Ingest has been installed successfully!"
 
     # Check if auto-start is enabled
     $autoStartEnabled = $false
@@ -627,6 +609,9 @@ if (-not $script:HasErrors) {
         Write-Host "  - Disable auto-start: Unregister-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
         Write-Host " "
     }
+
+    Write-Host "To uninstall, run: $InstallDir\uninstall.ps1" -ForegroundColor White
+    Write-Host " "
 
     # --- User-friendly usage explanation ---
     Write-Host "How to use Deadlock API Ingest:" -ForegroundColor Green
