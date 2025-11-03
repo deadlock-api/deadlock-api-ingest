@@ -302,7 +302,7 @@ try {
     $release = Get-LatestRelease
 
     # Try to run uninstall script if it exists (clean uninstall before fresh install)
-    $existingUninstallScript = Join-Path -Path $InstallDir -ChildPath "uninstall.ps1"
+    $existingUninstallScript = Join-Path -Path $InstallDir -ChildPath "uninstall-windows.ps1"
     if (Test-Path $existingUninstallScript) {
         Write-InstallLog -Level 'INFO' "Found existing installation. Running uninstall script..."
         try {
@@ -383,7 +383,7 @@ try {
 
     # Download uninstall script
     Write-InstallLog -Level 'INFO' "Downloading uninstall script..."
-    $uninstallScriptPath = Join-Path -Path $InstallDir -ChildPath "uninstall.ps1"
+    $uninstallScriptPath = Join-Path -Path $InstallDir -ChildPath "uninstall-windows.ps1"
     $uninstallScriptUrl = "https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/main/uninstall-windows.ps1"
 
     try {
@@ -611,7 +611,7 @@ if (-not $script:HasErrors) {
         Write-Host " "
     }
 
-    Write-Host "To uninstall, run: $InstallDir\uninstall.ps1" -ForegroundColor White
+    Write-Host "To uninstall, run: $InstallDir\uninstall-windows.ps1" -ForegroundColor White
     Write-Host " "
 
     # --- User-friendly usage explanation ---
