@@ -381,27 +381,20 @@ try {
         $script:ErrorDetails += "File unblock failed (non-critical)"
     }
 
-    # Copy uninstall script
-    Write-InstallLog -Level 'INFO' "Copying uninstall script..."
+    # Download uninstall script
+    Write-InstallLog -Level 'INFO' "Downloading uninstall script..."
     $uninstallScriptPath = Join-Path -Path $InstallDir -ChildPath "uninstall.ps1"
-    $sourceUninstallScript = Join-Path -Path $PSScriptRoot -ChildPath "uninstall-windows.ps1"
+    $uninstallScriptUrl = "https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/main/uninstall-windows.ps1"
 
     try {
-        if (Test-Path $sourceUninstallScript) {
-            Copy-Item -Path $sourceUninstallScript -Destination $uninstallScriptPath -Force
-            Write-InstallLog -Level 'SUCCESS' "Uninstall script copied to: $uninstallScriptPath"
-        }
-        else {
-            Write-InstallLog -Level 'WARN' "Source uninstall script not found at: $sourceUninstallScript"
-            Write-InstallLog -Level 'INFO' "You can download it from the repository if needed."
-            $script:HasErrors = $true
-            $script:ErrorDetails += "Uninstall script not found (non-critical)"
-        }
+        Invoke-WebRequest -Uri $uninstallScriptUrl -OutFile $uninstallScriptPath -UseBasicParsing
+        Write-InstallLog -Level 'SUCCESS' "Uninstall script downloaded to: $uninstallScriptPath"
     }
     catch {
-        Write-InstallLog -Level 'WARN' "Failed to copy uninstall script, but continuing installation."
+        Write-InstallLog -Level 'WARN' "Failed to download uninstall script, but continuing installation."
+        Write-InstallLog -Level 'INFO' "You can manually download it from: $uninstallScriptUrl"
         $script:HasErrors = $true
-        $script:ErrorDetails += "Uninstall script copy failed (non-critical)"
+        $script:ErrorDetails += "Uninstall script download failed (non-critical)"
     }
 
     Write-InstallLog -Level 'INFO' "Installing application..."
