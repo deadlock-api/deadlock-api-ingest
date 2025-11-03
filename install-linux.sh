@@ -20,16 +20,7 @@ SERVICE_NAME=$APP_NAME
 LOG_FILE="/tmp/${APP_NAME}-install.log"
 SYSTEMD_SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
-# Update functionality
-UPDATE_SERVICE_NAME="${APP_NAME}-updater"
-UPDATE_TIMER_NAME="${APP_NAME}-updater"
-UPDATE_SCRIPT_PATH="$INSTALL_DIR/update-checker.sh"
-UPDATE_LOG_FILE="/var/log/${APP_NAME}-updater.log"
-VERSION_FILE="$INSTALL_DIR/version.txt"
-CONFIG_FILE="$INSTALL_DIR/config.conf"
-BACKUP_DIR="$INSTALL_DIR/backup"
-UPDATE_SYSTEMD_SERVICE_FILE="/etc/systemd/system/${UPDATE_SERVICE_NAME}.service"
-UPDATE_SYSTEMD_TIMER_FILE="/etc/systemd/system/${UPDATE_TIMER_NAME}.timer"
+
 
 # --- Colors for output ---
 RED='\033[0;31m'
@@ -246,18 +237,7 @@ download_file() {
     fi
 }
 
-# Function to download the update checker script
-download_update_checker() {
-    local update_script_url="https://raw.githubusercontent.com/$GITHUB_REPO/master/update-checker.sh"
 
-    if ! wget --quiet --user-agent="Bash-Installer" -O "$UPDATE_SCRIPT_PATH" "$update_script_url" 2>> "$LOG_FILE"; then
-        log "ERROR" "Failed to download update checker script."
-        exit 1
-    fi
-
-    chmod +x "$UPDATE_SCRIPT_PATH"
-    log "SUCCESS" "Update checker script installed."
-}
 
 # Function to get the actual user who invoked sudo (not root)
 get_actual_user() {
@@ -440,178 +420,11 @@ EOF
     esac
 }
 
-# Function to manage the update systemd service and timer
-manage_update_service() {
-    local action="$1"
 
-    case "$action" in
-        "remove")
-            # Stop and disable timer
-            if systemctl is-active --quiet "$UPDATE_TIMER_NAME.timer"; then
-                execute_quietly systemctl stop "$UPDATE_TIMER_NAME.timer"
-            fi
-            if systemctl is-enabled --quiet "$UPDATE_TIMER_NAME.timer"; then
-                execute_quietly systemctl disable "$UPDATE_TIMER_NAME.timer"
-            fi
 
-            # Stop and disable service
-            if systemctl is-active --quiet "$UPDATE_SERVICE_NAME.service"; then
-                execute_quietly systemctl stop "$UPDATE_SERVICE_NAME.service"
-            fi
-            if systemctl is-enabled --quiet "$UPDATE_SERVICE_NAME.service"; then
-                execute_quietly systemctl disable "$UPDATE_SERVICE_NAME.service"
-            fi
 
-            # Remove files
-            if [[ -f "$UPDATE_SYSTEMD_TIMER_FILE" ]]; then
-                rm -f "$UPDATE_SYSTEMD_TIMER_FILE"
-            fi
-            if [[ -f "$UPDATE_SYSTEMD_SERVICE_FILE" ]]; then
-                rm -f "$UPDATE_SYSTEMD_SERVICE_FILE"
-            fi
 
-            systemctl daemon-reload 2>> "$LOG_FILE"
-            ;;
-        "create")
-            # Create the update service file
-            cat > "$UPDATE_SYSTEMD_SERVICE_FILE" << EOF
-[Unit]
-Description=Deadlock API Ingest Update Checker
-Documentation=https://github.com/$GITHUB_REPO
-After=network.target
-Wants=network.target
 
-[Service]
-Type=oneshot
-User=root
-Group=root
-ExecStart=$UPDATE_SCRIPT_PATH
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=$UPDATE_SERVICE_NAME
-
-# Security Hardening
-ReadWritePaths=/var/log
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-EOF
-
-            # Create the timer file
-            cat > "$UPDATE_SYSTEMD_TIMER_FILE" << EOF
-[Unit]
-Description=Daily Update Check for Deadlock API Ingest
-Requires=$UPDATE_SERVICE_NAME.service
-
-[Timer]
-OnCalendar=daily
-RandomizedDelaySec=1800
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-EOF
-
-            chmod 644 "$UPDATE_SYSTEMD_SERVICE_FILE"
-            chmod 644 "$UPDATE_SYSTEMD_TIMER_FILE"
-            systemctl daemon-reload 2>> "$LOG_FILE"
-            log "SUCCESS" "Automatic update service created."
-            ;;
-        "start")
-            execute_quietly systemctl enable "$UPDATE_TIMER_NAME.timer"
-            execute_quietly systemctl start "$UPDATE_TIMER_NAME.timer"
-
-            if systemctl is-active --quiet "$UPDATE_TIMER_NAME.timer"; then
-                log "SUCCESS" "Automatic updates enabled."
-                # Log detailed timer info to file only
-                echo "Next update check: $(systemctl list-timers --no-pager | grep "$UPDATE_TIMER_NAME" | awk '{print $1, $2}')" >> "$LOG_FILE"
-            else
-                log "ERROR" "Update timer failed to start."
-                log "INFO" "To check status: systemctl status $UPDATE_TIMER_NAME.timer"
-                exit 1
-            fi
-            ;;
-    esac
-}
-
-# Function to create configuration file
-create_config_file() {
-    cat > "$CONFIG_FILE" << EOF
-# Deadlock API Ingest Configuration
-# This file controls various settings for the application and updater
-
-# Automatic Updates
-# Set to "false" to disable automatic updates
-AUTO_UPDATE="true"
-
-# Update Check Time
-# The timer runs daily, but you can manually trigger updates with:
-# systemctl start $UPDATE_SERVICE_NAME.service
-
-# Backup Retention
-# Number of backup versions to keep (default: 5)
-BACKUP_RETENTION=5
-
-# Update Log Level
-# Options: INFO, WARN, ERROR
-UPDATE_LOG_LEVEL="INFO"
-EOF
-
-    chmod 644 "$CONFIG_FILE"
-    log "SUCCESS" "Configuration file created at $CONFIG_FILE"
-}
-
-# Function to store version information
-store_version_info() {
-    local version="$1"
-    echo "$version" > "$VERSION_FILE"
-    log "INFO" "Version information stored: $version"
-}
-
-# Function to prompt user for automatic updater setup
-prompt_for_updater() {
-    # Check if we're running in an interactive terminal
-    if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then
-        log "INFO" "Non-interactive mode detected. Installing automatic updater by default."
-        return 0
-    fi
-
-    log "INFO" "The automatic updater will check for new versions daily and install them automatically."
-    log "INFO" "This helps keep your installation secure and up-to-date with the latest features."
-    echo >&2
-
-    local attempts=0
-    local max_attempts=2
-
-    while [[ $attempts -lt $max_attempts ]]; do
-        echo -n "Would you like to set up automatic updates? (y/n): " >&2
-
-        local response
-        if read -t 10 -r response; then
-            case "${response,,}" in
-                y|yes)
-                    return 0
-                    ;;
-                n|no)
-                    return 1
-                    ;;
-                *)
-                    attempts=$((attempts + 1))
-                    if [[ $attempts -lt $max_attempts ]]; then
-                        echo "Invalid response. Please enter 'y' for yes or 'n' for no." >&2
-                    fi
-                    ;;
-            esac
-        else
-            log "INFO" "No response received within 10 seconds. Installing automatic updater by default."
-            return 0
-        fi
-    done
-
-    log "INFO" "Maximum attempts reached. Installing automatic updater by default."
-    return 0
-}
 
 # Function to prompt user for auto-start setup
 prompt_for_autostart() {
@@ -675,14 +488,12 @@ main() {
         exit 1
     fi
 
-    # Remove existing services (both main and update)
+    # Remove existing service
     manage_service "remove"
-    manage_update_service "remove"
 
     killall "$APP_NAME" 2>/dev/null || true
 
     mkdir -p "$INSTALL_DIR"
-    mkdir -p "$BACKUP_DIR"
 
     local temp_download_path="$INSTALL_DIR/${APP_NAME}-${version}"
     download_file "$download_url" "$temp_download_path" "$size"
@@ -789,30 +600,12 @@ main() {
         fi
     fi
 
-    # Prompt user for automatic updater setup
-    if prompt_for_updater; then
-        # Download update checker script
-        download_update_checker
-
-        # Create and start update service/timer
-        manage_update_service "create"
-        manage_update_service "start"
-
-        log "SUCCESS" "Automatic updater has been installed and configured."
-    else
-        log "INFO" "Skipping automatic updater installation as requested."
-    fi
-
     log "SUCCESS" "🚀 Deadlock API Ingest ($version) has been installed successfully!"
 
     # The final messages should also be sent to stderr to not interfere with any potential scripting.
     {
         echo
-        if systemctl is-enabled --quiet "$UPDATE_TIMER_NAME.timer" 2>/dev/null; then
-            echo -e "${GREEN}Installation complete with automatic updates enabled.${NC}"
-        else
-            echo -e "${GREEN}Installation complete.${NC}"
-        fi
+        echo -e "${GREEN}Installation complete.${NC}"
         echo
 
         if systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
@@ -831,22 +624,6 @@ main() {
         if ! systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
             echo -e "  - Enable auto-start: ${YELLOW}systemctl enable $SERVICE_NAME${NC}"
         fi
-        echo
-
-        if systemctl is-enabled --quiet "$UPDATE_TIMER_NAME.timer" 2>/dev/null; then
-            echo -e "Automatic update functionality:"
-            echo -e "  - Update timer:  ${YELLOW}systemctl status $UPDATE_TIMER_NAME.timer${NC}"
-            echo -e "  - Update logs:   ${YELLOW}journalctl -u $UPDATE_SERVICE_NAME -f${NC}"
-            echo -e "  - Manual update: ${YELLOW}systemctl start $UPDATE_SERVICE_NAME.service${NC}"
-            echo -e "  - Disable updates: Edit ${YELLOW}$CONFIG_FILE${NC} and set AUTO_UPDATE=\"false\""
-            echo
-            echo -e "Update logs: ${YELLOW}$UPDATE_LOG_FILE${NC}"
-        else
-            echo -e "To enable automatic updates later, you can re-run this installer."
-        fi
-        echo
-        echo -e "Configuration file: ${YELLOW}$CONFIG_FILE${NC}"
-        echo -e "Version file: ${YELLOW}$VERSION_FILE${NC}"
         echo
     } >&2
 }
