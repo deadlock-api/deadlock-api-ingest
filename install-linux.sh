@@ -349,7 +349,7 @@ main() {
     fi
 
     # Try to run uninstall script if it exists (clean uninstall before fresh install)
-    local existing_uninstall_script="$INSTALL_DIR/uninstall.sh"
+    local existing_uninstall_script="$INSTALL_DIR/uninstall-linux.sh"
     if [[ -f "$existing_uninstall_script" ]]; then
         log "INFO" "Found existing installation. Running uninstall script..."
         if "$existing_uninstall_script" --silent 2>/dev/null; then
@@ -384,7 +384,7 @@ main() {
 
     # Download uninstall script
     log "INFO" "Downloading uninstall script..."
-    local uninstall_script_path="$INSTALL_DIR/uninstall.sh"
+    local uninstall_script_path="$INSTALL_DIR/uninstall-linux.sh"
     local uninstall_script_url="https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/main/uninstall-linux.sh"
 
     if curl -fsSL "$uninstall_script_url" -o "$uninstall_script_path"; then
@@ -508,7 +508,7 @@ main() {
             echo -e "  - Enable auto-start: ${YELLOW}systemctl --user enable $SERVICE_NAME${NC}"
         fi
         echo
-        echo -e "To uninstall, run: ${YELLOW}$INSTALL_DIR/uninstall.sh${NC}"
+        echo -e "To uninstall, run: ${YELLOW}$INSTALL_DIR/uninstall-linux.sh${NC}"
         echo
     } >&2
 }
