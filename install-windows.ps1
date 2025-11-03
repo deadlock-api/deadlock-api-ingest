@@ -390,6 +390,7 @@ try {
     Write-Host ""
     Write-Host "Auto-start will automatically start the application when the system boots." -ForegroundColor White
     Write-Host "This ensures the application is always running in the background." -ForegroundColor White
+    Write-Host "CAREFUL: This requires Administrator privileges to create a scheduled task." -ForegroundColor Yellow
     Write-Host ""
     Write-Host "Enable auto-start on system boot? (Y/N): " -ForegroundColor Yellow -NoNewline
 
