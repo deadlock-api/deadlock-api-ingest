@@ -598,7 +598,7 @@ if (-not $script:HasErrors) {
         if ($task) {
             $autoStartEnabled = $true
             Write-Host "[+] Auto-start is enabled" -ForegroundColor Green
-            Write-Host "    The application will start automatically every time the computer boots up." -ForegroundColor White
+            Write-Host "    The application will start automatically every time you log in." -ForegroundColor White
         } else {
             Write-Host "[-] Auto-start is disabled" -ForegroundColor Yellow
             Write-Host "    The application will not start automatically on user login." -ForegroundColor White
