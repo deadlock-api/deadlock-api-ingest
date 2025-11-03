@@ -16,10 +16,6 @@ dashmap = "6.1.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.55.0"
-pktmon = "0.6.2"
-
-[target.'cfg(target_os = "linux")'.dependencies]
-pcap = "2.3.0"
 
 [dev-dependencies]
 sysinfo = "0.37.2"

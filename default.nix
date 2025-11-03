@@ -14,7 +14,6 @@ pkgs.stdenv.mkDerivation rec {
   ];
 
   buildInputs = with pkgs; [
-    libpcap
     libgcc
   ];
 
@@ -23,7 +22,6 @@ pkgs.stdenv.mkDerivation rec {
   installPhase = ''
     mkdir -p $out/bin
     install -m755 $src $out/bin/deadlock-api-ingest
-    patchelf --replace-needed libpcap.so.0.8 libpcap.so.1 $out/bin/deadlock-api-ingest
   '';
 
   meta = {

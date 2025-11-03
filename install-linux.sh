@@ -90,51 +90,6 @@ install_dependencies() {
         command -v "$pkg" >/dev/null 2>&1 || pkgs_to_install+=("$pkg")
     done
 
-    local libpcap_pkg="libpcap"
-    if command -v apt-get >/dev/null 2>&1; then
-        libpcap_pkg="libpcap0.8"
-    fi
-
-    if command -v dpkg-query >/dev/null 2>&1; then
-        dpkg-query -W -f='${Status}' "$libpcap_pkg" 2>/dev/null | grep -q "install ok installed" || pkgs_to_install+=("$libpcap_pkg")
-    fi
-
-    if command -v rpm >/dev/null 2>&1; then
-        rpm -q "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
-    fi
-
-    if command -v pacman >/dev/null 2>&1; then
-        pacman -Q "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
-    fi
-
-    if command -v apk >/dev/null 2>&1; then
-        apk info -e "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
-    fi
-
-    if command -v pkg >/dev/null 2>&1; then
-        pkg info "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
-    fi
-
-    if command -v pkgutil >/dev/null 2>&1; then
-        pkgutil --pkg-info "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
-    fi
-
-    if command -v pkg_add >/dev/null 2>&1; then
-        pkg_info -e "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
-    fi
-
-    if command -v pkgin >/dev/null 2>&1; then
-        pkgin list "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
-    fi
-
-    if command -v pkgconf >/dev/null 2>&1; then
-        pkgconf --exists "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
-    fi
-
-    if command -v pkg-config >/dev/null 2>&1; then
-        pkg-config --exists "$libpcap_pkg" >/dev/null 2>&1 || pkgs_to_install+=("$libpcap_pkg")
-    fi
-
     if [[ ${#pkgs_to_install[@]} -eq 0 ]]; then
         log "SUCCESS" "All dependencies are already installed."
         return
@@ -164,19 +119,6 @@ install_dependencies() {
     fi
 
     log "SUCCESS" "Dependencies installed successfully."
-
-    # Symlink libpcap.so to libpcap.so.0.8 if it exists but the latter does not
-    if [[ ! -f /usr/lib/libpcap.so.0.8 && ! -f /usr/lib64/libpcap.so.0.8 ]]; then
-        libpcap_path=$(find /usr/lib /usr/lib64 /lib /lib64 /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu -type f -name 'libpcap.so*' 2>/dev/null | head -n 1 || true)
-
-        if [[ -n "$libpcap_path" ]]; then
-            dest="$(dirname "$libpcap_path")/libpcap.so.0.8"
-            if [[ ! -e "$dest" ]]; then
-                ln -s "$libpcap_path" "$dest" 2>/dev/null || true
-                log "INFO" "Created symlink: $dest -> $libpcap_path"
-            fi
-        fi
-    fi
 }
 
 # Function to get latest release info from GitHub API
