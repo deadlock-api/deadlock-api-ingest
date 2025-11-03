@@ -81,28 +81,26 @@ Then enable and start with: `systemctl --user enable --now deadlock-api-ingest`
 
 ### Windows
 
-**One-liner (recommended):**
+```powershell
+& "$env:LOCALAPPDATA\deadlock-api-ingest\uninstall.ps1"
+```
+**Or navigate to** `%LOCALAPPDATA%\deadlock-api-ingest\` and double-click `uninstall.ps1`.
+
+**Older Versions:**
 ```powershell
 irm https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/main/uninstall-windows.ps1 | iex
 ```
 
-**Or run the local uninstall script:**
-```powershell
-& "$env:LOCALAPPDATA\deadlock-api-ingest\uninstall.ps1"
-```
-
-**Or navigate to** `%LOCALAPPDATA%\deadlock-api-ingest\` and double-click `uninstall.ps1`.
-
 ### Linux
 
-**One-liner (recommended):**
-```bash
-curl -fsSL https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/main/uninstall-linux.sh | bash
-```
-
-**Or run the local uninstall script:**
+**Run the local uninstall script:**
 ```bash
 ~/.local/share/deadlock-api-ingest/uninstall.sh
+```
+
+**Older Versions:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/main/uninstall-linux.sh | bash
 ```
 
 > **Note:** The installer automatically copies the uninstall script to the installation directory for offline use.
