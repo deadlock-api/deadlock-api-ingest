@@ -385,7 +385,7 @@ main() {
     # Download uninstall script
     log "INFO" "Downloading uninstall script..."
     local uninstall_script_path="$INSTALL_DIR/uninstall-linux.sh"
-    local uninstall_script_url="https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/main/uninstall-linux.sh"
+    local uninstall_script_url="https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/uninstall-linux.sh"
 
     if curl -fsSL "$uninstall_script_url" -o "$uninstall_script_path"; then
         chmod +x "$uninstall_script_path"

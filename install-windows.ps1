@@ -367,7 +367,7 @@ try {
     # Download uninstall script
     Write-InstallLog -Level 'INFO' "Downloading uninstall script..."
     $uninstallScriptPath = Join-Path -Path $InstallDir -ChildPath "uninstall-windows.ps1"
-    $uninstallScriptUrl = "https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/main/uninstall-windows.ps1"
+    $uninstallScriptUrl = "https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/uninstall-windows.ps1"
 
     try {
         Invoke-WebRequest -Uri $uninstallScriptUrl -OutFile $uninstallScriptPath -UseBasicParsing

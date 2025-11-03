@@ -88,7 +88,7 @@ Then enable and start with: `systemctl --user enable --now deadlock-api-ingest`
 
 **Older Versions:**
 ```powershell
-irm https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/main/uninstall-windows.ps1 | iex
+irm https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/uninstall-windows.ps1 | iex
 ```
 
 ### Linux
@@ -100,7 +100,7 @@ irm https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/main/unin
 
 **Older Versions:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/main/uninstall-linux.sh | bash
+curl -fsSL https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/uninstall-linux.sh | bash
 ```
 
 > **Note:** The installer automatically copies the uninstall script to the installation directory for offline use.
