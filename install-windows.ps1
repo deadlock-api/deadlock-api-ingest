@@ -250,14 +250,22 @@ function Set-StartupTask {
             Write-InstallLog -Level 'INFO' "Creating startup task..."
 
             try {
-                # Define the action (what program to run and its working directory)
-                $taskAction = New-ScheduledTaskAction -Execute $ExecutablePath -WorkingDirectory $InstallDir
+                # Create a VBS wrapper script to run the executable hidden
+                $vbsWrapperPath = Join-Path -Path $InstallDir -ChildPath "run-hidden.vbs"
+                $vbsContent = @"
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run """$ExecutablePath""", 0, False
+"@
+                Set-Content -Path $vbsWrapperPath -Value $vbsContent -Force
+
+                # Define the action (run the VBS wrapper with wscript.exe to hide the window)
+                $taskAction = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbsWrapperPath`"" -WorkingDirectory $InstallDir
 
                 # Define the trigger (when to run it - at user logon)
                 $taskTrigger = New-ScheduledTaskTrigger -AtLogOn
 
                 # Define the user and permissions (run as current user with standard privileges)
-                $taskPrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+                $taskPrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
 
                 # Define settings (allow it to run indefinitely, prevent multiple instances)
                 $taskSettings = New-ScheduledTaskSettingsSet `
@@ -265,7 +273,8 @@ function Set-StartupTask {
                     -DontStopIfGoingOnBatteries `
                     -ExecutionTimeLimit 0 `
                     -StartWhenAvailable `
-                    -MultipleInstances IgnoreNew
+                    -MultipleInstances IgnoreNew `
+                    -Hidden
 
                 # Register the task with the system
                 Register-ScheduledTask -TaskName $AppName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Monitors Steam cache for Deadlock match replays and submits metadata to the Deadlock API." | Out-Null
@@ -592,7 +601,7 @@ if (-not $script:HasErrors) {
             Write-Host "    The application will start automatically every time the computer boots up." -ForegroundColor White
         } else {
             Write-Host "[-] Auto-start is disabled" -ForegroundColor Yellow
-            Write-Host "    The application will not start automatically on system boot." -ForegroundColor White
+            Write-Host "    The application will not start automatically on user login." -ForegroundColor White
             Write-Host "    To enable auto-start later, re-run this installer." -ForegroundColor White
         }
     } catch {
