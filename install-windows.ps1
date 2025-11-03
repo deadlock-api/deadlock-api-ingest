@@ -61,20 +61,6 @@ function Invoke-FatalError {
     Write-Host $LogFile -ForegroundColor White
     Write-Host ""
 
-    # Show recent log entries
-    if (Test-Path $LogFile) {
-        Write-Host "Recent log entries:" -ForegroundColor Yellow
-        try {
-            $recentLogs = Get-Content $LogFile -Tail 10 -ErrorAction SilentlyContinue
-            if ($recentLogs) {
-                $recentLogs | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
-            }
-        } catch {
-            Write-Host "  Unable to read recent log entries" -ForegroundColor Gray
-        }
-        Write-Host ""
-    }
-
     # Wait for user acknowledgment (skip in CI environments)
     if (-not $script:SkipPressAnyKey) {
         Write-Host "Press any key to close this window..." -ForegroundColor Green
@@ -151,6 +137,20 @@ function Invoke-Quietly {
             Invoke-FatalError -ErrorMessage $errorMsg -DetailedError $_.Exception.Message
         }
         return $false
+    }
+}
+
+# Function to check for Administrator privileges
+function Test-IsAdmin {
+    try {
+        $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $isAdmin = (New-Object Security.Principal.WindowsPrincipal $currentUser).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+        if (-not $isAdmin) {
+            Invoke-FatalError -ErrorMessage "Administrator privileges are required to create scheduled tasks." -DetailedError "Please run this script as an Administrator."
+        }
+    }
+    catch {
+        Invoke-FatalError -ErrorMessage "Failed to check Administrator privileges." -DetailedError $_.Exception.Message
     }
 }
 
@@ -456,6 +456,7 @@ try {
     if ($enableAutoStart) {
         Write-InstallLog -Level 'INFO' "User chose to enable auto-start."
         # Create the main scheduled task
+        Test-IsAdmin
         Set-StartupTask -Action 'Create' -ExecutablePath $downloadPath
 
         # Start the main task
