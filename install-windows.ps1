@@ -15,13 +15,7 @@ $InstallDir = "$env:ProgramFiles\$AppName"
 $FinalExecutableName = "$AppName.exe"
 $LogFile = "$env:TEMP\${AppName}-install.log"
 
-# Update functionality
-$UpdateTaskName = "${AppName}-updater"
-$UpdateScriptPath = "$InstallDir\update-checker.ps1"
-$UpdateLogFile = "$env:ProgramData\${AppName}\updater.log"
-$VersionFile = "$InstallDir\version.txt"
-$ConfigFile = "$InstallDir\config.conf"
-$BackupDir = "$InstallDir\backup"
+
 
 # --- Script Setup ---
 $ErrorActionPreference = 'Stop'
@@ -208,23 +202,7 @@ function Get-LatestRelease {
     }
 }
 
-# Function to download the update checker script
-function Get-UpdateChecker {
-    Write-InstallLog -Level 'INFO' "Downloading update checker script..."
 
-    $UpdateScriptUrl = "https://raw.githubusercontent.com/$GithubRepo/master/update-checker.ps1"
-
-    try {
-        Invoke-WebRequest -Uri $UpdateScriptUrl -OutFile $UpdateScriptPath -UseBasicParsing
-        Write-InstallLog -Level 'SUCCESS' "Update checker script installed."
-    } catch {
-        Write-InstallLog -Level 'ERROR' "Failed to download update checker script."
-        Write-InstallLog -Level 'WARN' "Continuing installation without update checker script."
-        Add-Content -Path $LogFile -Value "Error details: $($_.Exception.Message)"
-        $script:HasErrors = $true
-        $script:ErrorDetails += "Update checker download failed (non-critical)"
-    }
-}
 
 # Function to get the actual user who invoked the script (not Administrator)
 function Get-ActualUser {
@@ -367,180 +345,8 @@ function Set-StartupTask {
     }
 }
 
-# Function to manage the Watchdog Task (ensures app is always running)
-function Set-WatchdogTask {
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('Remove', 'Create')]
-        [string]$Action,
-        [string]$ExecutablePath
-    )
 
-    $WatchdogTaskName = "$AppName-Watchdog"
 
-    switch ($Action) {
-        'Remove' {
-            Invoke-Quietly "Removing existing watchdog task..." {
-                Unregister-ScheduledTask -TaskName $WatchdogTaskName -Confirm:$false -ErrorAction SilentlyContinue
-            } | Out-Null
-        }
-        'Create' {
-            Write-InstallLog -Level 'INFO' "Creating watchdog task to ensure application stays running..."
-
-            try {
-                # Create a PowerShell script that checks if the process is running
-                $watchdogScript = @"
-`$processName = '$([System.IO.Path]::GetFileNameWithoutExtension($ExecutablePath))'
-`$taskName = '$AppName'
-
-# Check if the process is already running
-`$process = Get-Process -Name `$processName -ErrorAction SilentlyContinue
-
-if (-not `$process) {
-    # Process not running, start the scheduled task
-    Start-ScheduledTask -TaskName `$taskName -ErrorAction SilentlyContinue
-}
-"@
-
-                $watchdogScriptPath = Join-Path $InstallDir "watchdog.ps1"
-                Set-Content -Path $watchdogScriptPath -Value $watchdogScript -Force
-
-                # Define the action (run PowerShell with the watchdog script)
-                $taskAction = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$watchdogScriptPath`"" -WorkingDirectory $InstallDir
-
-                # Define the trigger (every 30 minutes)
-                $taskTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 30)
-
-                # Define the user and permissions (run as SYSTEM)
-                $taskPrincipal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-
-                # Define settings
-                $taskSettings = New-ScheduledTaskSettingsSet `
-                    -AllowStartIfOnBatteries `
-                    -DontStopIfGoingOnBatteries `
-                    -ExecutionTimeLimit (New-TimeSpan -Minutes 5) `
-                    -StartWhenAvailable `
-                    -MultipleInstances IgnoreNew
-
-                # Register the task with the system
-                Register-ScheduledTask -TaskName $WatchdogTaskName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Monitors and restarts the Deadlock API Ingest application if it stops running." | Out-Null
-
-                Write-InstallLog -Level 'SUCCESS' "Watchdog task created successfully (checks every 30 minutes)."
-            }
-            catch {
-                Write-InstallLog -Level 'ERROR' "Failed to create watchdog task: $($_.Exception.Message)"
-                Write-InstallLog -Level 'WARN' "Continuing installation without watchdog task."
-                $script:HasErrors = $true
-                $script:ErrorDetails += "Watchdog task creation failed (non-critical)"
-            }
-        }
-    }
-}
-
-# Function to manage the update scheduled task
-function Set-UpdateTask {
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('Remove', 'Create')]
-        [string]$Action
-    )
-
-    switch ($Action) {
-        'Remove' {
-            Invoke-Quietly "Removing existing update task..." {
-                Unregister-ScheduledTask -TaskName $UpdateTaskName -Confirm:$false -ErrorAction SilentlyContinue
-            } | Out-Null
-        }
-        'Create' {
-            Write-InstallLog -Level 'INFO' "Creating automatic update task..."
-
-            try {
-                # Define the action (run PowerShell with the update script)
-                $taskAction = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-ExecutionPolicy Bypass -File `"$UpdateScriptPath`"" -WorkingDirectory $InstallDir
-
-                # Define the trigger (daily at 3 AM with random delay)
-                $taskTrigger = New-ScheduledTaskTrigger -Daily -At "3:00 AM"
-                $taskTrigger.RandomDelay = "PT30M"  # 30 minute random delay
-
-                # Define the user and permissions (run as SYSTEM)
-                $taskPrincipal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-
-                # Define settings
-                $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1) -StartWhenAvailable
-
-                # Register the task with the system
-                Register-ScheduledTask -TaskName $UpdateTaskName -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Daily update checker for Deadlock API Ingest application." | Out-Null
-
-                Write-InstallLog -Level 'SUCCESS' "Automatic updates enabled."
-                # Log detailed schedule info to file only
-                Add-Content -Path $LogFile -Value "Update task will run daily at 3:00 AM (with up to 30 minute random delay)."
-            }
-            catch {
-                Write-InstallLog -Level 'ERROR' "Failed to create automatic update task."
-                Write-InstallLog -Level 'WARN' "Continuing installation without automatic updates."
-                Add-Content -Path $LogFile -Value "Error details: $($_.Exception.Message)"
-                $script:HasErrors = $true
-                $script:ErrorDetails += "Update task creation failed (non-critical)"
-            }
-        }
-    }
-}
-
-# Function to create configuration file
-function New-ConfigFile {
-    Write-InstallLog -Level 'INFO' "Creating configuration file..."
-
-    try {
-        $ConfigContent = @"
-# Deadlock API Ingest Configuration
-# This file controls various settings for the application and updater
-
-# Automatic Updates
-# Set to "false" to disable automatic updates
-AUTO_UPDATE="true"
-
-# Update Check Time
-# The task runs daily at 3 AM, but you can manually trigger updates with:
-# Start-ScheduledTask -TaskName $UpdateTaskName
-
-# Backup Retention
-# Number of backup versions to keep (default: 5)
-BACKUP_RETENTION=5
-
-# Update Log Level
-# Options: INFO, WARN, ERROR
-UPDATE_LOG_LEVEL="INFO"
-"@
-
-        Set-Content -Path $ConfigFile -Value $ConfigContent
-        Write-InstallLog -Level 'SUCCESS' "Configuration file created at $ConfigFile"
-    }
-    catch {
-        Write-InstallLog -Level 'ERROR' "Failed to create configuration file."
-        Write-InstallLog -Level 'WARN' "Continuing installation without configuration file."
-        Add-Content -Path $LogFile -Value "Error details: $($_.Exception.Message)"
-        $script:HasErrors = $true
-        $script:ErrorDetails += "Configuration file creation failed (non-critical)"
-    }
-}
-
-# Function to store version information
-function Set-VersionInfo {
-    param($Version)
-    try {
-        Set-Content -Path $VersionFile -Value $Version
-        Write-InstallLog -Level 'INFO' "Version information stored: $Version"
-    }
-    catch {
-        Write-InstallLog -Level 'ERROR' "Failed to store version information."
-        Write-InstallLog -Level 'WARN' "Continuing installation without version file."
-        Add-Content -Path $LogFile -Value "Error: $($_.Exception.Message)"
-        Add-Content -Path $LogFile -Value "Path: $VersionFile"
-        Add-Content -Path $LogFile -Value "This is not critical for the main application."
-        $script:HasErrors = $true
-        $script:ErrorDetails += "Version file creation failed (non-critical)"
-    }
-}
 
 # --- Main Installation Logic ---
 
@@ -553,11 +359,9 @@ try {
     Test-IsAdmin
     $release = Get-LatestRelease
 
-    # Remove any old scheduled tasks (main, watchdog, and update)
-    Invoke-Quietly "Removing existing scheduled tasks..." {
+    # Remove any old scheduled task
+    Invoke-Quietly "Removing existing scheduled task..." {
         Set-StartupTask -Action 'Remove'
-        Set-WatchdogTask -Action 'Remove'
-        Set-UpdateTask -Action 'Remove'
     } -ContinueOnError | Out-Null
 
     Write-InstallLog -Level 'INFO' "Preparing installation environment..."
@@ -572,14 +376,9 @@ try {
 
     try {
         New-Item -Path $InstallDir -ItemType Directory -Force | Out-Null
-        New-Item -Path $BackupDir -ItemType Directory -Force | Out-Null
-
-        # Ensure log directory exists
-        $UpdateLogDir = Split-Path -Parent $UpdateLogFile
-        New-Item -Path $UpdateLogDir -ItemType Directory -Force | Out-Null
     }
     catch {
-        Invoke-FatalError -ErrorMessage "Failed to create installation directories." -DetailedError "Error: $($_.Exception.Message)`n`nInstall Directory: $InstallDir`nBackup Directory: $BackupDir`nUpdate Log Directory: $UpdateLogDir"
+        Invoke-FatalError -ErrorMessage "Failed to create installation directory." -DetailedError "Error: $($_.Exception.Message)`n`nInstall Directory: $InstallDir"
     }
 
     $downloadPath = Join-Path -Path $InstallDir -ChildPath $FinalExecutableName
@@ -693,9 +492,6 @@ try {
         # Create the main scheduled task
         Set-StartupTask -Action 'Create' -ExecutablePath $downloadPath
 
-        # Create the watchdog task to ensure the app stays running
-        Set-WatchdogTask -Action 'Create' -ExecutablePath $downloadPath
-
         # Start the main task
         try {
             Start-ScheduledTask -TaskName $AppName
@@ -793,89 +589,7 @@ try {
         Write-Host ""
     }
 
-    # Ask user if they want automatic updates
-    Write-Host ""
-    Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host "     AUTOMATIC UPDATES (OPTIONAL)      " -ForegroundColor Cyan
-    Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "Would you like to enable automatic updates?" -ForegroundColor Yellow
-    Write-Host "This will create a scheduled task that checks for updates daily at 3 AM." -ForegroundColor White
-    Write-Host ""
-    Write-Host "Enable automatic updates? (Y/N): " -ForegroundColor Yellow -NoNewline
 
-    $installUpdater = $false
-    $updaterAttempts = 0
-    $maxUpdaterAttempts = 2
-
-    if (-not $isInteractive) {
-        Write-Host "Y (default in non-interactive mode)" -ForegroundColor Cyan
-        Write-InstallLog -Level 'INFO' "Non-interactive mode detected. Installing automatic updater by default."
-        $installUpdater = $true
-    } else {
-        # Try to read with timeout
-        $startTime = Get-Date
-        $keyPressed = $false
-
-        while ($updaterAttempts -lt $maxUpdaterAttempts -and -not $keyPressed) {
-            if ([Console]::KeyAvailable) {
-                $response = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                $key = $response.Character.ToString().ToUpper()
-
-                if ($key -eq "Y" -or $key -eq "N") {
-                    Write-Host $key -ForegroundColor Cyan
-                    if ($key -eq "Y") {
-                        $installUpdater = $true
-                    }
-                    $keyPressed = $true
-                    break
-                } else {
-                    $updaterAttempts++
-                    if ($updaterAttempts -lt $maxUpdaterAttempts) {
-                        Write-Host ""
-                        Write-Host "Invalid response. Please enter 'Y' for yes or 'N' for no." -ForegroundColor Yellow
-                        Write-Host "Enable automatic updates? (Y/N): " -ForegroundColor Yellow -NoNewline
-                    }
-                }
-            }
-
-            # Check timeout
-            if (((Get-Date) - $startTime).TotalSeconds -ge $timeoutSeconds -and -not $keyPressed) {
-                Write-Host "Y (timeout - defaulting to yes)" -ForegroundColor Cyan
-                Write-InstallLog -Level 'INFO' "No response received within $timeoutSeconds seconds. Installing automatic updater by default."
-                $installUpdater = $true
-                $keyPressed = $true
-                break
-            }
-
-            Start-Sleep -Milliseconds 100
-        }
-
-        if (-not $keyPressed) {
-            Write-Host "Y (max attempts reached - defaulting to yes)" -ForegroundColor Cyan
-            Write-InstallLog -Level 'INFO' "Maximum attempts reached. Installing automatic updater by default."
-            $installUpdater = $true
-        }
-    }
-
-    Write-Host ""
-
-    if ($installUpdater) {
-        Write-InstallLog -Level 'INFO' "User chose to enable automatic updates."
-        # Store version information
-        Set-VersionInfo -Version $release.Version
-        # Create configuration file
-        New-ConfigFile
-        # Download update checker script
-        Get-UpdateChecker
-        # Create the update scheduled task
-        Set-UpdateTask -Action 'Create'
-    } else {
-        Write-InstallLog -Level 'INFO' "User chose to skip automatic updates."
-        Write-Host "Automatic updates will not be installed." -ForegroundColor Yellow
-        Write-Host "You can manually update by downloading the latest version from GitHub or re-run the installer." -ForegroundColor White
-        Write-Host ""
-    }
 }
 catch {
     Invoke-FatalError -ErrorMessage "Unexpected error during installation." -DetailedError $_.Exception.Message
@@ -911,31 +625,6 @@ if (-not $script:HasErrors) {
         Write-Host "  - Run manually:  Start-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
         Write-Host "  - Stop it:       Stop-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
         Write-Host "  - Disable auto-start: Unregister-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
-        Write-Host " "
-    }
-
-    # Check if automatic updates are enabled
-    $updatesEnabled = $false
-    try {
-        $updateTask = Get-ScheduledTask -TaskName $UpdateTaskName -ErrorAction SilentlyContinue
-        if ($updateTask) {
-            $updatesEnabled = $true
-        }
-    } catch {
-        # Silently continue if task doesn't exist
-        Write-Verbose "Update task not found or error checking task status: $_"
-    }
-
-    if ($updatesEnabled) {
-        Write-Host "Automatic update functionality:" -ForegroundColor White
-        Write-Host "  - Update task:   Get-ScheduledTask -TaskName $UpdateTaskName | Get-ScheduledTaskInfo" -ForegroundColor Yellow
-        Write-Host "  - Manual update: Start-ScheduledTask -TaskName $UpdateTaskName" -ForegroundColor Yellow
-        Write-Host "  - Update logs:   Get-Content '$UpdateLogFile'" -ForegroundColor Yellow
-        Write-Host "  - Disable updates: Edit '$ConfigFile' and set AUTO_UPDATE=`"false`"" -ForegroundColor Yellow
-        Write-Host " "
-        Write-Host "Configuration file: $ConfigFile" -ForegroundColor Cyan
-        Write-Host "Version file: $VersionFile" -ForegroundColor Cyan
-        Write-Host "Update logs: $UpdateLogFile" -ForegroundColor Cyan
         Write-Host " "
     }
 
