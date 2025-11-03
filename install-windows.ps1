@@ -301,10 +301,35 @@ try {
 
     $release = Get-LatestRelease
 
-    # Remove any old scheduled task
-    Invoke-Quietly "Removing existing scheduled task..." {
-        Set-StartupTask -Action 'Remove'
-    } -ContinueOnError | Out-Null
+    # Try to run uninstall script if it exists (clean uninstall before fresh install)
+    $existingUninstallScript = Join-Path -Path $InstallDir -ChildPath "uninstall.ps1"
+    if (Test-Path $existingUninstallScript) {
+        Write-InstallLog -Level 'INFO' "Found existing installation. Running uninstall script..."
+        try {
+            & $existingUninstallScript -Silent
+            Write-InstallLog -Level 'SUCCESS' "Previous installation uninstalled successfully."
+        }
+        catch {
+            Write-InstallLog -Level 'WARN' "Uninstall script failed, continuing with manual cleanup: $($_.Exception.Message)"
+        }
+    }
+
+    # Remove any remaining old scheduled tasks (in case uninstall script didn't exist or failed)
+    Write-InstallLog -Level 'INFO' "Cleaning up any remaining old installations..."
+    $oldTasks = @("deadlock-api-ingest", "deadlock-api-ingest-Watchdog", "deadlock-api-ingest-updater")
+
+    foreach ($taskName in $oldTasks) {
+        try {
+            $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            if ($task) {
+                Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+            }
+        }
+        catch {
+            # Silently continue if task removal fails
+        }
+    }
 
     Write-InstallLog -Level 'INFO' "Preparing installation environment..."
 

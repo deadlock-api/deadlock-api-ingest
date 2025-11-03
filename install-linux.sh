@@ -348,11 +348,24 @@ main() {
         exit 1
     fi
 
-    # Remove existing service
+    # Try to run uninstall script if it exists (clean uninstall before fresh install)
+    local existing_uninstall_script="$INSTALL_DIR/uninstall.sh"
+    if [[ -f "$existing_uninstall_script" ]]; then
+        log "INFO" "Found existing installation. Running uninstall script..."
+        if "$existing_uninstall_script" --silent 2>/dev/null; then
+            log "SUCCESS" "Previous installation uninstalled successfully."
+        else
+            log "WARN" "Uninstall script failed, continuing with manual cleanup."
+        fi
+    fi
+
+    # Remove existing service (in case uninstall script didn't exist or failed)
     manage_service "remove"
 
+    # Clean up any remaining processes
     killall "$APP_NAME" 2>/dev/null || true
 
+    # Ensure installation directory exists
     mkdir -p "$INSTALL_DIR"
 
     local temp_download_path="$INSTALL_DIR/${APP_NAME}-${version}"
