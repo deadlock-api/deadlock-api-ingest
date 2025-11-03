@@ -382,19 +382,17 @@ main() {
     ln -sf "$final_executable_path" "$bin_symlink"
     log "SUCCESS" "Application installed successfully."
 
-    # Copy uninstall script
-    log "INFO" "Copying uninstall script..."
+    # Download uninstall script
+    log "INFO" "Downloading uninstall script..."
     local uninstall_script_path="$INSTALL_DIR/uninstall.sh"
-    local source_uninstall_script
-    source_uninstall_script="$(dirname "$0")/uninstall-linux.sh"
+    local uninstall_script_url="https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/main/uninstall-linux.sh"
 
-    if [[ -f "$source_uninstall_script" ]]; then
-        cp "$source_uninstall_script" "$uninstall_script_path"
+    if curl -fsSL "$uninstall_script_url" -o "$uninstall_script_path"; then
         chmod +x "$uninstall_script_path"
-        log "SUCCESS" "Uninstall script copied to: $uninstall_script_path"
+        log "SUCCESS" "Uninstall script downloaded to: $uninstall_script_path"
     else
-        log "WARN" "Source uninstall script not found at: $source_uninstall_script"
-        log "INFO" "You can download it from the repository if needed."
+        log "WARN" "Failed to download uninstall script, but continuing installation."
+        log "INFO" "You can manually download it from: $uninstall_script_url"
     fi
 
     # Create the main service (but don't enable/start it yet)
