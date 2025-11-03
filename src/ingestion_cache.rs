@@ -1,29 +1,69 @@
 use crate::utils::Salts;
 use dashmap::DashMap;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::OnceLock;
+
+/// Maximum size for the log file before truncating (1GB)
+const MAX_LOG_SIZE: u64 = 1_073_741_824;
+
+/// Name of the log file
+const LOG_FILE_NAME: &str = "fetched-salts.jsonl";
 
 /// Global cache to track successfully ingested salts.
 /// Key is the `match_id`, value is a tuple of `(has_metadata, has_replay)`.
 static INGESTION_CACHE: OnceLock<DashMap<u64, (bool, bool)>> = OnceLock::new();
 
-/// Check if a salt has already been ingested.
-/// Returns true if the specific salt type (metadata or replay) has been ingested for this `match_id`.
-pub(crate) fn is_ingested(match_id: u64, is_metadata: bool) -> bool {
-    if let Some(entry) = INGESTION_CACHE.get_or_init(DashMap::new).get(&match_id) {
-        let (has_metadata, has_replay) = *entry;
-        if is_metadata {
-            has_metadata
-        } else {
-            has_replay
+fn get_log_file_path() -> Option<PathBuf> {
+    let exe_path = std::env::current_exe().ok()?;
+    let exe_dir = exe_path.parent()?;
+    Some(exe_dir.join(LOG_FILE_NAME))
+}
+
+fn append_to_log_file(salt: &Salts) {
+    let Some(log_path) = get_log_file_path() else {
+        eprintln!("Failed to determine log file path");
+        return;
+    };
+
+    // Check file size and truncate if it exceeds 1GB
+    if let Ok(metadata) = std::fs::metadata(&log_path)
+        && metadata.len() >= MAX_LOG_SIZE
+        && let Err(e) = std::fs::remove_file(&log_path)
+    {
+        eprintln!("Failed to truncate log file: {e:?}");
+    }
+
+    // Serialize the salt to JSON
+    let json_line = match serde_json::to_string(salt) {
+        Ok(json) => json,
+        Err(e) => {
+            eprintln!("Failed to serialize salt to JSON: {e:?}");
+            return;
         }
-    } else {
-        false
+    };
+
+    // Open the file in append mode (create if it doesn't exist)
+    let mut file = match OpenOptions::new().create(true).append(true).open(&log_path) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Failed to open log file at {}: {e:?}", log_path.display());
+            return;
+        }
+    };
+
+    // Write the JSON line followed by a newline
+    if let Err(e) = writeln!(file, "{json_line}") {
+        eprintln!("Failed to write to log file: {e:?}");
     }
 }
 
 /// Mark a salt as successfully ingested.
 /// This should only be called after successful ingestion.
 pub(crate) fn mark_ingested(salt: &Salts) {
+    append_to_log_file(salt);
+
     INGESTION_CACHE
         .get_or_init(DashMap::new)
         .entry(salt.match_id)
@@ -41,6 +81,21 @@ pub(crate) fn mark_ingested(salt: &Salts) {
     let cache = INGESTION_CACHE.get_or_init(DashMap::new);
     if cache.len() > 10_000 {
         cache.clear();
+    }
+}
+
+/// Check if a salt has already been ingested.
+/// Returns true if the specific salt type (metadata or replay) has been ingested for this `match_id`.
+pub(crate) fn is_ingested(match_id: u64, is_metadata: bool) -> bool {
+    if let Some(entry) = INGESTION_CACHE.get_or_init(DashMap::new).get(&match_id) {
+        let (has_metadata, has_replay) = *entry;
+        if is_metadata {
+            has_metadata
+        } else {
+            has_replay
+        }
+    } else {
+        false
     }
 }
 
