@@ -2,7 +2,6 @@
 # Deadlock API Ingest - Uninstall Script
 # This script removes the application and all related components
 
-
 APP_NAME="deadlock-api-ingest"
 SERVICE_NAME="$APP_NAME"
 INSTALL_DIR="$HOME/.local/share/$APP_NAME"
