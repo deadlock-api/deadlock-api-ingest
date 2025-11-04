@@ -1,8 +1,7 @@
 use crate::ingestion_cache;
 use crate::utils::Salts;
 use memchr::{memchr, memmem};
-use notify::event::{CreateKind, ModifyKind};
-use notify::{EventKind, RecursiveMode, Watcher};
+use notify::{RecursiveMode, Watcher};
 use std::fs;
 use std::io::Read;
 use std::path::Path;
@@ -124,22 +123,9 @@ pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
         let Ok(event) = event else {
             continue;
         };
-        match event.kind {
-            // Check for all CreateKind other than Folder, as we may receive
-            // Any or Other even when a file is created.
-            EventKind::Create(CreateKind::File)
-            | EventKind::Create(CreateKind::Any)
-            | EventKind::Create(CreateKind::Other) => {}
-
-            // Sometimes we read a file too quickly after creation and miss its
-            // data, so we should also monitor modify events.
-            EventKind::Modify(ModifyKind::Data(_))
-            | EventKind::Modify(ModifyKind::Any)
-            | EventKind::Modify(ModifyKind::Other) => {}
-            _ => continue,
-        }
         for path in event.paths {
-            if let Some(url) = scan_file(&path)
+            if path.is_file()
+                && let Some(url) = scan_file(&path)
                 && let Some(salts) = Salts::from_url(&url)
             {
                 // Check if we've already ingested this salt using the shared cache
