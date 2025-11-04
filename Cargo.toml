@@ -15,6 +15,7 @@ serde_json = "1.0"
 dashmap = "6.1.0"
 steamlocate = "2.0.1"
 dirs = "6.0.0"
+walkdir = "2.5.0"
 
 [dev-dependencies]
 sysinfo = "0.37.2"

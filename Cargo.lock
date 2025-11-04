@@ -119,6 +119,7 @@ dependencies = [
  "steamlocate",
  "sysinfo",
  "ureq",
+ "walkdir",
  "winres",
 ]
 
