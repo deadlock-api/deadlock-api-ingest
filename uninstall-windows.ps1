@@ -59,17 +59,15 @@ if ($processes) {
 
 # Remove desktop shortcuts
 Write-Host "Removing desktop shortcuts..." -ForegroundColor Cyan
-$shortcuts = Get-Item "$env:USERPROFILE\Desktop\$AppName*.lnk" -ErrorAction SilentlyContinue
-$oneDriveShortcuts = Get-Item "$env:USERPROFILE\OneDrive\Desktop\$AppName*.lnk" -ErrorAction SilentlyContinue
-if ($shortcuts || $oneDriveShortcuts) {
-    Write-Host "  - Removing $(@($shortcuts).Count) shortcut(s)" -ForegroundColor Gray
-}
+$shortcutPaths = @(
+    "$env:USERPROFILE\Desktop\$AppName*.lnk",
+    "$env:USERPROFILE\OneDrive\Desktop\$AppName*.lnk"
+)
 
-if ($shortcuts) {
-    Remove-Item "$env:USERPROFILE\Desktop\$AppName*.lnk" -Force -ErrorAction SilentlyContinue
-}
-if ($oneDriveShortcuts) {
-    Remove-Item "$env:USERPROFILE\OneDrive\Desktop\$AppName*.lnk" -Force -ErrorAction SilentlyContinue
+$allShortcuts = $shortcutPaths | ForEach-Object { Get-Item $_ -ErrorAction SilentlyContinue }
+if ($allShortcuts) {
+    Write-Host "  - Removing $(@($allShortcuts).Count) shortcut(s)" -ForegroundColor Gray
+    $shortcutPaths | ForEach-Object { Remove-Item $_ -Force -ErrorAction SilentlyContinue }
 }
 
 # Remove installation directory
