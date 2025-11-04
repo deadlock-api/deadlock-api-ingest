@@ -51,33 +51,80 @@ chmod +x install-linux.sh
 
 ### NixOS
 
-You can add it as a flake and add systemd service files so it will run on boot, or simply run the binary whenever you need it
+#### Option 1: Using the NixOS Module (Recommended)
 
+Add this flake to your NixOS configuration:
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    deadlock-api-ingest.url = "github:deadlock-api/deadlock-api-ingest";
+  };
+
+  outputs = { self, nixpkgs, deadlock-api-ingest, ... }: {
+    nixosConfigurations.your-hostname = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        # Import the module
+        deadlock-api-ingest.nixosModules.default
+        
+        # Configure the service
+        {
+          services.deadlock-api-ingest = {
+            enable = true;
+            # Optional: customize user/group if you want it to run as a specific user
+            # user = "your-steam-user";
+            # group = "users";
+          };
+        }
+      ];
+    };
+  };
+}
 ```
+
+Then rebuild your system:
+
+```bash
+sudo nixos-rebuild switch --flake .#your-hostname
+```
+
+The service will automatically start and run in the background, monitoring your Steam cache.
+
+#### Option 2: Run Directly
+
+You can also run it directly without installing:
+
+```bash
 nix run github:deadlock-api/deadlock-api-ingest
 ```
 
-Example systemd user service file (`~/.config/systemd/user/deadlock-api-ingest.service`):
+#### Option 3: User Service (Manual)
 
-```toml
-[Unit]
-Description=Deadlock API Ingest Service
-Documentation=https://github.com/deadlock-api/deadlock-api-ingest
+For a user-level systemd service without the NixOS module:
 
-[Service]
-Type=simple
-ExecStart=/nix/store/...-deadlock-api-ingest/bin/deadlock-api-ingest
-Restart=on-failure
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=deadlock-api-ingest
+```nix
+# In your home-manager or systemd user services
+systemd.user.services.deadlock-api-ingest = {
+  Unit = {
+    Description = "Deadlock API Ingest Service";
+    After = [ "graphical-session.target" ];
+  };
 
-[Install]
-WantedBy=default.target
+  Service = {
+    ExecStart = "${pkgs.deadlock-api-ingest}/bin/deadlock-api-ingest";
+    Restart = "on-failure";
+    RestartSec = "10s";
+  };
+
+  Install = {
+    WantedBy = [ "default.target" ];
+  };
+};
 ```
 
-Then enable and start with: `systemctl --user enable --now deadlock-api-ingest`
+Then enable: `systemctl --user enable --now deadlock-api-ingest`
 
 ## Uninstallation
 
