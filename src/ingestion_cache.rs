@@ -16,9 +16,19 @@ const LOG_FILE_NAME: &str = "fetched-salts.jsonl";
 static INGESTION_CACHE: OnceLock<DashMap<u64, (bool, bool)>> = OnceLock::new();
 
 fn get_log_file_path() -> Option<PathBuf> {
-    let exe_path = std::env::current_exe().ok()?;
-    let exe_dir = exe_path.parent()?;
-    Some(exe_dir.join(LOG_FILE_NAME))
+    // Use platform-specific data directory
+    // Linux: ~/.local/share/deadlock-api-ingest/
+    // macOS: ~/Library/Application Support/deadlock-api-ingest/
+    // Windows: C:\Users\<User>\AppData\Roaming\deadlock-api-ingest\
+    let data_dir = dirs::data_dir()?.join("deadlock-api-ingest");
+    
+    // Create directory if it doesn't exist
+    if let Err(e) = std::fs::create_dir_all(&data_dir) {
+        eprintln!("Failed to create data directory at {}: {e:?}", data_dir.display());
+        return None;
+    }
+    
+    Some(data_dir.join(LOG_FILE_NAME))
 }
 
 fn append_to_log_file(salt: &Salts) {
