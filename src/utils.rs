@@ -82,13 +82,16 @@ impl Salts {
 
     pub(crate) fn ingest_many(salts: &[Salts]) -> Result<(), Error> {
         let max_retries = 10;
+        let num_salts = salts.len();
         let mut attempt = 0;
         loop {
             attempt += 1;
-            println!(
-                "Ingesting {n} salts (retry {attempt}/{max_retries})",
-                n = salts.len()
-            );
+            if attempt > 1 {
+                println!("Ingesting {num_salts} salts (retry {attempt}/{max_retries})");
+            } else {
+                println!("Ingesting {num_salts} salts");
+            }
+
             let response = HTTP_CLIENT
                 .get_or_init(ureq::Agent::new_with_defaults)
                 .post("https://api.deadlock-api.com/v1/matches/salts")
