@@ -34,7 +34,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
   # cargoTestFlags = [ "--all-features" ];
 
   meta = {
-    description = "Monitors your Steam HTTP cache for Deadlock game replay files and automatically submits match metadata to the ";
+    description = "Monitors your Steam HTTP cache for Deadlock game replay files and automatically submits match metadata to the Deadlock API";
     homepage = "https://github.com/deadlock-api/deadlock-api-ingest";
     license = lib.licenses.mit; # or licenses.asl20, etc.
     mainProgram = "deadlock-api-ingest";
