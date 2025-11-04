@@ -7,7 +7,7 @@
       "https://deadlock-api-ingest.cachix.org"
     ];
     extra-trusted-public-keys = [
-      "deadlock-api-ingest.cachix.org-1:YOUR_PUBLIC_KEY_HERE"
+      "deadlock-api-ingest.cachix.org-1:UvvF0vXYqgpZVJaCiVPi90GKTGTXxs4znl6FsJzH+uU="
     ];
   };
 
