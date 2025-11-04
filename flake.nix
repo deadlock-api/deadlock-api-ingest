@@ -6,8 +6,19 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+    }:
+    {
+      # Export the NixOS module
+      nixosModules.default = import ./module.nix;
+      nixosModules.deadlock-api-ingest = import ./module.nix;
+    }
+    // flake-utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = import nixpkgs {
           inherit system;
@@ -24,5 +35,6 @@
 
         packages.default = package;
 
-      });
+      }
+    );
 }
