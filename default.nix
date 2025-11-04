@@ -14,7 +14,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
 
   inherit src;
 
-  cargoHash = "sha256-mc6pW0AK6t4R9yXlGXLQ5uMdjfP4TGsvEyRDD6wQe3c=";
+  cargoHash = "sha256-V5HVrYEuQ7MI8BTcWLfokCP8KX6bK1Zw/oyoYtxMXNY=";
 
   nativeBuildInputs = [
     pkg-config
@@ -34,7 +34,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
   # cargoTestFlags = [ "--all-features" ];
 
   meta = {
-    description = "Monitors your Steam HTTP cache for Deadlock game replay files and automatically submits match metadata to the Deadlock API";
+    description = "Monitors your Steam HTTP cache for Deadlock game replay files and automatically submits match metadata to the ";
     homepage = "https://github.com/deadlock-api/deadlock-api-ingest";
     license = lib.licenses.mit; # or licenses.asl20, etc.
     mainProgram = "deadlock-api-ingest";
