@@ -24,6 +24,11 @@ fn main() {
     let steam_path = steam_dir.path();
     let cache_dir = steam_path.join("appcache").join("httpcache");
 
+    if !cache_dir.exists() {
+        eprintln!("Cache directory does not exist: {}", cache_dir.display());
+        return;
+    }
+
     scan_cache::initial_cache_dir_ingest(&cache_dir);
 
     if std::env::args().any(|arg| arg == "--once") {
