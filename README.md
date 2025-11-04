@@ -73,9 +73,9 @@ Add this flake to your NixOS configuration:
         {
           services.deadlock-api-ingest = {
             enable = true;
-            # Optional: customize user/group if you want it to run as a specific user
-            # user = "your-steam-user";
-            # group = "users";
+            # IMPORTANT: Set this to the user who has Steam installed
+            user = "your-steam-username";
+            group = "users";
           };
         }
       ];
@@ -83,6 +83,8 @@ Add this flake to your NixOS configuration:
   };
 }
 ```
+
+**Important:** Replace `"your-steam-username"` with your actual username that has Steam installed.
 
 Then rebuild your system:
 
