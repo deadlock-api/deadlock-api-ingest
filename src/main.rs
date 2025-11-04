@@ -22,11 +22,35 @@ fn main() {
         return;
     };
     let steam_path = steam_dir.path();
-    let cache_dir = steam_path.join("appcache").join("httpcache");
+    let mut cache_dir = steam_path.join("appcache").join("httpcache");
 
     if !cache_dir.exists() {
-        eprintln!("Cache directory does not exist: {}", cache_dir.display());
-        return;
+        let home_dir = dirs::home_dir().unwrap_or_default();
+        let appcache_search = std::ffi::OsStr::new("appcache");
+        for entry in walkdir::WalkDir::new(&home_dir)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_dir())
+        {
+            if entry.file_name() == "httpcache"
+                && entry
+                    .path()
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .is_some_and(|p| p == appcache_search)
+            {
+                cache_dir = entry.path().to_path_buf();
+                break;
+            }
+        }
+        if !cache_dir.exists() {
+            eprintln!(
+                "Could not find Steam cache directory at {}. Waiting 30s before exiting.",
+                cache_dir.display()
+            );
+            std::thread::sleep(core::time::Duration::from_secs(30));
+            return;
+        }
     }
 
     scan_cache::initial_cache_dir_ingest(&cache_dir);
