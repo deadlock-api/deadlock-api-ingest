@@ -22,25 +22,50 @@ in {
 
     user = mkOption {
       type = types.str;
-      default = "deadlock-api-ingest";
-      description = "User account under which deadlock-api-ingest runs";
+      example = "yourusername";
+      description = ''
+        User account under which deadlock-api-ingest runs.
+        This should be the user who has Steam installed.
+        Leave unset to create a system user (requires manual Steam directory configuration).
+      '';
     };
 
     group = mkOption {
       type = types.str;
-      default = "deadlock-api-ingest";
+      default = "users";
       description = "Group under which deadlock-api-ingest runs";
+    };
+
+    steamUser = mkOption {
+      type = types.nullOr types.str;
+      default = cfg.user;
+      example = "yourusername";
+      description = ''
+        The user whose Steam directory should be monitored.
+        Defaults to the service user. Set this if running as a different user.
+      '';
     };
   };
 
   config = mkIf cfg.enable {
-    users.users.${cfg.user} = {
-      isSystemUser = true;
-      group = cfg.group;
-      description = "Deadlock API Ingest service user";
+    assertions = [
+      {
+        assertion = cfg.user != "deadlock-api-ingest" || cfg.steamUser != null;
+        message = "You must set services.deadlock-api-ingest.user to your Steam user, or configure steamUser";
+      }
+    ];
+
+    users.users = mkIf (cfg.user == "deadlock-api-ingest") {
+      deadlock-api-ingest = {
+        isSystemUser = true;
+        group = cfg.group;
+        description = "Deadlock API Ingest service user";
+      };
     };
 
-    users.groups.${cfg.group} = {};
+    users.groups = mkIf (cfg.group == "deadlock-api-ingest") {
+      deadlock-api-ingest = {};
+    };
 
     systemd.services.deadlock-api-ingest = {
       description = "Deadlock API Ingest Service";
@@ -57,12 +82,18 @@ in {
         Restart = "on-failure";
         RestartSec = "10s";
 
-        # Hardening
+        # Hardening (relaxed to allow Steam directory access)
         NoNewPrivileges = true;
         PrivateTmp = true;
         ProtectSystem = "strict";
-        ProtectHome = true;
-        ReadWritePaths = [ "/var/lib/deadlock-api-ingest" ];
+        # Allow reading home directory for Steam cache
+        ProtectHome = "read-only";
+        # Allow writing to data directory and Steam user's home
+        ReadWritePaths = [ 
+          "/var/lib/deadlock-api-ingest"
+          "/home/${cfg.user}/.local/share/deadlock-api-ingest"
+          "/home/${cfg.user}/.local/share/Steam"
+        ];
       };
     };
 

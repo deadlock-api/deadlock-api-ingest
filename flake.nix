@@ -1,6 +1,16 @@
 {
   description = "Monitors your Steam HTTP cache for Deadlock game replay files and automatically submits match metadata to the Deadlock API";
 
+  # Automatically use the binary cache
+  nixConfig = {
+    extra-substituters = [
+      "https://deadlock-api-ingest.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "deadlock-api-ingest.cachix.org-1:YOUR_PUBLIC_KEY_HERE"
+    ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
