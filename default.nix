@@ -1,34 +1,42 @@
-{ pkgs ? import <nixpkgs> {} }:
+{
+  lib,
+  rustPlatform,
+  pkg-config,
+  openssl,
+  stdenv,
+  darwin,
+  src,
+}:
 
-pkgs.stdenv.mkDerivation rec {
+rustPlatform.buildRustPackage (finalAttrs: {
   pname = "deadlock-api-ingest";
-  version = "0.1.140-8659e00";
+  version = "0.1.257-56ddcf0";
 
-  src = pkgs.fetchurl {
-    url = "https://github.com/deadlock-api/deadlock-api-ingest/releases/download/v${version}/deadlock-api-ingest-ubuntu-latest";
-    sha256 = "sha256-bZIHTdhfX1UgH30i0+Sn2mAw7fNpg6OYBEr4oX+9P/8=="; 
-  };
+  inherit src;
 
-  nativeBuildInputs = with pkgs; [
-    autoPatchelfHook
+  cargoHash = "sha256-mc6pW0AK6t4R9yXlGXLQ5uMdjfP4TGsvEyRDD6wQe3c=";
+
+  nativeBuildInputs = [
+    pkg-config
   ];
 
-  buildInputs = with pkgs; [
-    libgcc
+  buildInputs = [
+    openssl
+  ] ++ lib.optionals stdenv.isDarwin [
+    darwin.apple_sdk.frameworks.Security
+    darwin.apple_sdk.frameworks.SystemConfiguration
   ];
 
-  unpackPhase = "true";
+  # Run tests during build
+  doCheck = true;
 
-  installPhase = ''
-    mkdir -p $out/bin
-    install -m755 $src $out/bin/deadlock-api-ingest
-  '';
+  # Additional cargo flags if needed
+  # cargoTestFlags = [ "--all-features" ];
 
   meta = {
     description = "Monitors your Steam HTTP cache for Deadlock game replay files and automatically submits match metadata to the Deadlock API";
     homepage = "https://github.com/deadlock-api/deadlock-api-ingest";
-    license = pkgs.lib.licenses.mit;
-    # maintainers = with pkgs.lib.maintainers; [ ];
+    license = lib.licenses.mit; # or licenses.asl20, etc.
     mainProgram = "deadlock-api-ingest";
   };
-}
+})
