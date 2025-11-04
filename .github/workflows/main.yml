@@ -251,6 +251,8 @@ jobs:
           git config --local user.name "github-actions[bot]"
           git add default.nix
           git diff --staged --quiet || git commit -m "chore: bump version to ${{ needs.build.outputs.version }} [skip ci]"
+          # Pull with rebase to handle any remote changes, then push
+          git pull --rebase origin master
           git push
       - name: Create Release
         uses: softprops/action-gh-release@v2
