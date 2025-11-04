@@ -205,6 +205,8 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     steps:
       - uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
       - name: Download all artifacts
         uses: actions/download-artifact@v6
         with:
@@ -216,8 +218,18 @@ jobs:
           ls -la ./release-assets/
       - name: Update default.nix version
         run: |
-          sed -i "s/version = \"[^\"]*\";/version = \"${{ needs.build.outputs.version }}\";/" default.nix
-          echo "Updated default.nix version to ${{ needs.build.outputs.version }}"
+          # Remove the 'v' prefix from version for default.nix
+          VERSION_NO_V=$(echo "${{ needs.build.outputs.version }}" | sed 's/^v//')
+          sed -i "s/version = \"[^\"]*\";/version = \"$VERSION_NO_V\";/" default.nix
+          echo "Updated default.nix version to $VERSION_NO_V"
+          cat default.nix | grep "version ="
+      - name: Commit version update
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add default.nix
+          git diff --staged --quiet || git commit -m "chore: bump version to ${{ needs.build.outputs.version }} [skip ci]"
+          git push
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
