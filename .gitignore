@@ -6,3 +6,9 @@
 # will have schema files for capabilities auto-completion
 /gen/schemas
 .idea
+
+# Nix build outputs
+result
+result-*
+
+
