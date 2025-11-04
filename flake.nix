@@ -13,8 +13,9 @@
           inherit system;
         };
 
-        package = import ./default.nix { inherit pkgs; };
-      in {
+        package = pkgs.callPackage ./default.nix { src = self; };
+      in
+      {
 
         apps.default = {
           type = "app";
