@@ -127,15 +127,15 @@ pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
         match event.kind {
             // Check for all CreateKind other than Folder, as we may receive
             // Any or Other even when a file is created.
-            EventKind::Create(CreateKind::File) |
-            EventKind::Create(CreateKind::Any) |
-            EventKind::Create(CreateKind::Other) => {},
+            EventKind::Create(CreateKind::File)
+            | EventKind::Create(CreateKind::Any)
+            | EventKind::Create(CreateKind::Other) => {}
 
             // Sometimes we read a file too quickly after creation and miss its
             // data, so we should also monitor modify events.
-            EventKind::Modify(ModifyKind::Data(_)) |
-            EventKind::Modify(ModifyKind::Any) |
-            EventKind::Modify(ModifyKind::Other) => {},
+            EventKind::Modify(ModifyKind::Data(_))
+            | EventKind::Modify(ModifyKind::Any)
+            | EventKind::Modify(ModifyKind::Other) => {}
             _ => continue,
         }
         for path in event.paths {
