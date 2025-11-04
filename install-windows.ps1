@@ -302,16 +302,28 @@ try {
     $release = Get-LatestRelease
 
     # Try to run uninstall script if it exists (clean uninstall before fresh install)
-    $existingUninstallScript = Join-Path -Path $InstallDir -ChildPath "uninstall-windows.ps1"
-    if (Test-Path $existingUninstallScript) {
-        Write-InstallLog -Level 'INFO' "Found existing installation. Running uninstall script..."
-        try {
-            & $existingUninstallScript -Silent
-            Write-InstallLog -Level 'SUCCESS' "Previous installation uninstalled successfully."
+    Write-Host "Removing scheduled tasks..." -ForegroundColor Cyan
+    $tasksToRemove = @(
+        "$AppName",
+        "$AppName-Watchdog",
+        "$AppName-updater"
+    )
+
+    foreach ($taskName in $tasksToRemove) {
+        $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        if ($task) {
+            Write-Host "  - Removing task: $taskName" -ForegroundColor Gray
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
         }
-        catch {
-            Write-InstallLog -Level 'WARN' "Uninstall script failed, continuing with manual cleanup: $($_.Exception.Message)"
-        }
+    }
+
+    # Stop any running process
+    Write-Host "Stopping running processes..." -ForegroundColor Cyan
+    $processes = Get-Process -Name $AppName -ErrorAction SilentlyContinue
+    if ($processes) {
+        Write-Host "  - Stopping $($processes.Count) process(es)" -ForegroundColor Gray
+        Stop-Process -Name $AppName -Force -ErrorAction SilentlyContinue
     }
 
     Write-InstallLog -Level 'INFO' "Preparing installation environment..."
