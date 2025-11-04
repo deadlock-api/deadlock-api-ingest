@@ -61,7 +61,7 @@ impl Salts {
 
         loop {
             attempt += 1;
-            println!("Ingesting salts: {self:?} ({attempt}/{max_retries})");
+            println!("Ingesting salts: {self:?} (retry {attempt}/{max_retries})");
             let response = HTTP_CLIENT
                 .get_or_init(ureq::Agent::new_with_defaults)
                 .post("https://api.deadlock-api.com/v1/matches/salts")
@@ -86,7 +86,7 @@ impl Salts {
         loop {
             attempt += 1;
             println!(
-                "Ingesting {n} salts ({attempt}/{max_retries})",
+                "Ingesting {n} salts (retry {attempt}/{max_retries})",
                 n = salts.len()
             );
             let response = HTTP_CLIENT
