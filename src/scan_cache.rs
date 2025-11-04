@@ -124,7 +124,10 @@ pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
         let Ok(event) = event else {
             continue;
         };
-        if event.kind != EventKind::Create(CreateKind::File) {
+        if event.kind != EventKind::Create(CreateKind::File)
+            && event.kind != EventKind::Create(CreateKind::Any)
+            && event.kind != EventKind::Create(CreateKind::Other)
+        {
             continue;
         }
         for path in event.paths {
