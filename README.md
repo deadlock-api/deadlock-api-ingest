@@ -12,6 +12,8 @@ The application scans Steam's local HTTP cache directory (`Steam/appcache/httpca
 - 🔄 **Automatic**: Continuously monitors for new matches as you play
 - 📦 **Runs without admin**: Application runs with standard user permissions (admin only needed for auto-start setup on Windows)
 
+DeepWiki: https://deepwiki.com/deadlock-api/deadlock-api-ingest
+
 ## Quick Installation
 
 ### Windows (PowerShell)
