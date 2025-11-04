@@ -221,7 +221,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: build
+    needs: [ build, nix-build ]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     steps:
