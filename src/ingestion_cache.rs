@@ -78,10 +78,10 @@ pub(crate) fn mark_ingested(salt: &Salts) {
     append_to_log_file(salt);
 
     let cache = INGESTION_CACHE.get_or_init(Default::default);
-    let Ok(mut cache) = cache.write() else {
+    let mut cache = cache.write().unwrap_or_else(|poisoned| {
         eprintln!("Failed to lock ingestion cache for writing");
-        return;
-    };
+        poisoned.into_inner()
+    });
 
     cache
         .entry(salt.match_id)
@@ -105,10 +105,10 @@ pub(crate) fn mark_ingested(salt: &Salts) {
 /// Returns true if the specific salt type (metadata or replay) has been ingested for this `match_id`.
 pub(crate) fn is_ingested(match_id: u64, is_metadata: bool) -> bool {
     let cache = INGESTION_CACHE.get_or_init(Default::default);
-    let Ok(cache) = cache.read() else {
+    let cache = cache.read().unwrap_or_else(|poisoned| {
         eprintln!("Failed to lock ingestion cache for reading");
-        return false;
-    };
+        poisoned.into_inner()
+    });
 
     if let Some(entry) = cache.get(&match_id) {
         let (has_metadata, has_replay) = *entry;
