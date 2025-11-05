@@ -1,6 +1,7 @@
 use crate::ingestion_cache;
 use crate::utils::Salts;
 use memchr::{memchr, memmem};
+use notify::event::{CreateKind, ModifyKind};
 use notify::{RecursiveMode, Watcher};
 use std::fs;
 use std::io::Read;
@@ -122,7 +123,8 @@ pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
     while let Ok(Ok(event)) = rx.recv() {
         if !matches!(
             event.kind,
-            notify::EventKind::Modify(_) | notify::EventKind::Create(_)
+            notify::EventKind::Modify(ModifyKind::Data(_))
+                | notify::EventKind::Create(CreateKind::File)
         ) {
             continue;
         }
