@@ -120,6 +120,12 @@ pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
     watcher.watch(cache_dir, RecursiveMode::Recursive)?;
 
     while let Ok(Ok(event)) = rx.recv() {
+        if !matches!(
+            event.kind,
+            notify::EventKind::Modify(_) | notify::EventKind::Create(_)
+        ) {
+            continue;
+        }
         for path in event.paths {
             if path.is_file()
                 && let Some(url) = scan_file(&path)
