@@ -119,10 +119,7 @@ pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
     let mut watcher = notify::recommended_watcher(tx)?;
     watcher.watch(cache_dir, RecursiveMode::Recursive)?;
 
-    while let Ok(event) = rx.recv() {
-        let Ok(event) = event else {
-            continue;
-        };
+    while let Ok(Ok(event)) = rx.recv() {
         for path in event.paths {
             if path.is_file()
                 && let Some(url) = scan_file(&path)
