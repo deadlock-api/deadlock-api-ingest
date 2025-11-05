@@ -174,7 +174,7 @@ jobs:
           # Generate semantic version based on commit count and short SHA
           COMMIT_COUNT=$(git rev-list --count HEAD)
           SHORT_SHA=$(git rev-parse --short HEAD)
-          VERSION="v0.1.$COMMIT_COUNT-$SHORT_SHA"
+          VERSION="v0.1.$COMMIT_COUNT"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Generated version: $VERSION"
         shell: bash
@@ -261,8 +261,6 @@ jobs:
           name: "Deadlock API Ingest ${{ needs.build.outputs.version }}"
           body: |
             ## Deadlock API Ingest ${{ needs.build.outputs.version }}
-
-            Automated release with the latest changes from master branch.
 
             ### Installation
 
