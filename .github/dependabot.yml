@@ -4,7 +4,18 @@ updates:
     directory: /
     schedule:
       interval: daily
+    groups:
+      all-actions:
+        patterns:
+          - "*"
+    rebase-strategy: auto
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: daily
+    rebase-strategy: auto
+    groups:
+      production-dependencies:
+        dependency-type: "production"
+      development-dependencies:
+        dependency-type: "development"
