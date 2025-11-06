@@ -202,9 +202,17 @@ jobs:
           path: ${{ matrix.asset_name }}
           retention-days: 1
 
+  nix-test-install:
+    name: Nix Docker Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run Nix build in Docker
+        run: ./tests/nix-install.sh
+
   nix-build:
     name: Build with Nix and Cache
-    needs: [ fmt, deps, audit, typos, lint, test, shellcheck-installer, powershell-analyzer ]
+    needs: [ fmt, deps, audit, typos, lint, test, shellcheck-installer, powershell-analyzer, nix-test-install ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
