@@ -14,6 +14,8 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    naersk.url = "github:nix-community/naersk";
+    naersk.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -21,6 +23,7 @@
       self,
       nixpkgs,
       flake-utils,
+      naersk,
     }:
     {
       # Export the NixOS module
@@ -34,7 +37,12 @@
           inherit system;
         };
 
-        package = pkgs.callPackage ./default.nix { src = self; };
+        naersk-lib = pkgs.callPackage naersk {};
+
+        package = pkgs.callPackage ./default.nix { 
+          src = self;
+          naersk-lib = naersk-lib;
+        };
       in
       {
 

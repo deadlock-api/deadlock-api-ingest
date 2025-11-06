@@ -1,6 +1,6 @@
 {
   lib,
-  rustPlatform,
+  naersk-lib,
   pkg-config,
   openssl,
   stdenv,
@@ -8,13 +8,14 @@
   src,
 }:
 
-rustPlatform.buildRustPackage (finalAttrs: {
+let
+  cargoToml = builtins.fromTOML (builtins.readFile (src + /Cargo.toml));
+in
+naersk-lib.buildPackage {
   pname = "deadlock-api-ingest";
-  version = "0.1.314";
+  version = cargoToml.package.version;
 
   inherit src;
-
-  cargoHash = "sha256-TYv2nAXvwzVO3z3NoDRgllyJ/mQQLIxI1EC6S+cTuVA=";
 
   nativeBuildInputs = [
     pkg-config
@@ -27,11 +28,8 @@ rustPlatform.buildRustPackage (finalAttrs: {
     darwin.apple_sdk.frameworks.SystemConfiguration
   ];
 
-  # Run tests during build
-  doCheck = true;
-
-  # Additional cargo flags if needed
-  # cargoTestFlags = [ "--all-features" ];
+  # naersk runs tests by default
+  # doCheck = true;
 
   meta = {
     description = "Monitors your Steam HTTP cache for Deadlock game replay files and automatically submits match metadata to the Deadlock API";
@@ -39,4 +37,4 @@ rustPlatform.buildRustPackage (finalAttrs: {
     license = lib.licenses.mit; # or licenses.asl20, etc.
     mainProgram = "deadlock-api-ingest";
   };
-})
+}
