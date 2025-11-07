@@ -24,6 +24,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 # We do not need the Rust toolchain to run the binary!
 FROM debian:trixie-slim AS runtime
+LABEL org.opencontainers.image.source="https://github.com/deadlock-api/deadlock-api-ingest" \
+      org.opencontainers.image.description="Deadlock API ingest service" \
+      org.opencontainers.image.licenses="MIT"
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libssl-dev openssl libc6 \
     && rm -rf /var/lib/apt/lists/*
