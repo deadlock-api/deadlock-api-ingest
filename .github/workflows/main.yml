@@ -226,7 +226,7 @@ jobs:
         run: nix flake check
 
   build-push-docker:
-    name: Build & Push Docker Image
+    name: Build, Scan & Push Docker Image
     needs: [ build, nix-build ]
     runs-on: ubuntu-latest
     if: (github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'pull_request'
@@ -238,25 +238,31 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push Docker image
+      - name: Set Docker tags
+        id: tags
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+            echo "tags=ghcr.io/deadlock-api/deadlock-api-ingest:${{ needs.build.outputs.version }},ghcr.io/deadlock-api/deadlock-api-ingest:latest" >> $GITHUB_OUTPUT
+            echo "scan_image=ghcr.io/deadlock-api/deadlock-api-ingest:latest" >> $GITHUB_OUTPUT
+          else
+            echo "tags=ghcr.io/deadlock-api/deadlock-api-ingest:pr-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+            echo "scan_image=ghcr.io/deadlock-api/deadlock-api-ingest:pr-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          fi
+      - name: Build and load Docker image
         uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: ${{ steps.tags.outputs.tags }}
+      - name: Scan for vulnerabilities
+        uses: crazy-max/ghaction-container-scan@v3
+        with:
+          image: ${{ steps.tags.outputs.scan_image }}
+      - name: Push Docker image
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        with:
-          context: .
-          push: true
-          tags: |
-            ghcr.io/deadlock-api/deadlock-api-ingest:${{ needs.build.outputs.version }}
-            ghcr.io/deadlock-api/deadlock-api-ingest:latest
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        if: github.event_name == 'pull_request'
-        with:
-          context: .
-          push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          tags: |
-            ghcr.io/deadlock-api/deadlock-api-ingest:pr-${{ github.event.pull_request.number }}
+        run: |
+          docker push ghcr.io/deadlock-api/deadlock-api-ingest:${{ needs.build.outputs.version }}
+          docker push ghcr.io/deadlock-api/deadlock-api-ingest:latest
 
   release:
     name: Create Release
