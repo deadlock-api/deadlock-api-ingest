@@ -11,6 +11,8 @@ env:
 permissions:
   contents: write
   packages: write
+  actions: read
+  security-events: write
 
 concurrency:
   cancel-in-progress: true
@@ -257,6 +259,7 @@ jobs:
         uses: crazy-max/ghaction-container-scan@v3
         with:
           image: ${{ steps.tags.outputs.scan_image }}
+          annotations: true
       - name: Push Docker image
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: |
