@@ -254,7 +254,6 @@ jobs:
         with:
           image-ref: ${{ steps.tags.outputs.scan_image }}
           format: 'table'
-          ignore-unfixed: true
           exit-code: 0
           output: 'trivy-report.txt'
       - name: Upload Trivy report
@@ -267,7 +266,6 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ steps.tags.outputs.scan_image }}
-          format: 'table'
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: 1
