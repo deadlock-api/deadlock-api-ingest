@@ -204,9 +204,9 @@ jobs:
           path: ${{ matrix.asset_name }}
           retention-days: 1
 
-  nix-build:
-    name: Build with Nix and Cache
-    needs: [ fmt, deps, audit, typos, lint, test, shellcheck-installer, powershell-analyzer ]
+  build-cache-nix:
+    name: Build & Cache Nix Package
+    needs: [ build ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -228,7 +228,7 @@ jobs:
 
   build-push-docker:
     name: Build, Scan & Push Docker Image
-    needs: [ build, nix-build ]
+    needs: [ build ]
     runs-on: ubuntu-latest
     if: (github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'pull_request'
     steps:
@@ -284,7 +284,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: [ build, nix-build ]
+    needs: [ build ]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     steps:
