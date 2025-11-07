@@ -233,12 +233,6 @@ jobs:
     if: (github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v5
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set Docker tags
         id: tags
         run: |
@@ -260,6 +254,12 @@ jobs:
         with:
           image: ${{ steps.tags.outputs.scan_image }}
           annotations: true
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Push Docker image
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: |
