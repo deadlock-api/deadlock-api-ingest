@@ -226,11 +226,13 @@ jobs:
             ghcr.io/deadlock-api/deadlock-api-ingest:${{ needs.build.outputs.version }}
             ghcr.io/deadlock-api/deadlock-api-ingest:latest
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         if: github.event_name == 'pull_request'
         with:
           context: .
           push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
             ghcr.io/deadlock-api/deadlock-api-ingest:pr-${{ github.event.pull_request.number }}
 
