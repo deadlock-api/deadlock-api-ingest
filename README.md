@@ -17,18 +17,6 @@ The application scans Steam's local HTTP cache directory (`Steam/appcache/httpca
 - [DeepWiki Documentation](https://deepwiki.com/deadlock-api/deadlock-api-ingest)
 ## Quick Installation
 
-### Docker
-
-Run the pre-built Docker image:
-
-```bash
-docker run -d --restart unless-stopped \
-  -v ~/.steam/steam/appcache/httpcache:/root/.steam/steam/appcache/httpcache \
-  ghcr.io/deadlock-api/deadlock-api-ingest:latest
-```
-
-> **Note**: The command above mounts the default Steam cache directory on Linux (`~/.steam/steam`). If your Steam installation is in a different location, please adjust the path accordingly.
-
 ### Windows (PowerShell)
 
 Run this command in PowerShell:
@@ -63,6 +51,18 @@ chmod +x install-linux.sh
 ```
 
 > **Note**: The installation scripts automatically download the latest release binaries from GitHub and set up the application to run on user login. The application installs to your user directory and does not require elevated privileges.
+
+### Docker
+
+Run the pre-built Docker image:
+
+```bash
+docker run -d --restart unless-stopped \
+  -v ~/.steam/steam/appcache/httpcache:/root/.steam/steam/appcache/httpcache \
+  ghcr.io/deadlock-api/deadlock-api-ingest:latest
+```
+
+> **Note**: The command above mounts the default Steam cache directory on Linux (`~/.steam/steam`). If your Steam installation is in a different location, please adjust the path accordingly.
 
 ### NixOS
 
