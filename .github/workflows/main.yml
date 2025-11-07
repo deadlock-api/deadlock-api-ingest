@@ -318,6 +318,8 @@ jobs:
           echo "prerelease=$PRERELEASE" >> $GITHUB_OUTPUT
       - name: Create Release
         uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ needs.build.outputs.version }}
           name: ${{ steps.release_info.outputs.release_title }}
@@ -348,5 +350,3 @@ jobs:
           draft: false
           prerelease: ${{ steps.release_info.outputs.prerelease }}
           make_latest: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
