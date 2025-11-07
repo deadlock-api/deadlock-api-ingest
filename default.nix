@@ -10,7 +10,7 @@
 
 rustPlatform.buildRustPackage (finalAttrs: {
   pname = "deadlock-api-ingest";
-  version = "0.1.312";
+  version = "0.1.314";
 
   inherit src;
 
