@@ -177,13 +177,24 @@ jobs:
           rustup target add ${{ matrix.target }}
       - name: Generate version
         id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CARGO_VERSION=$(grep '^version' Cargo.toml | head -n 1 | sed -e 's/version = "//' -e 's/"//')
           SHORT_SHA=$(git rev-parse --short HEAD)
-          VERSION="v${CARGO_VERSION}-${SHORT_SHA}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Generated version: $VERSION"
-        shell: bash
+          VERSION="v${CARGO_VERSION}"
+          VERSION_SHA="v${CARGO_VERSION}-${SHORT_SHA}"
+          EXISTING_TAGS=$(gh release list --repo ${{ github.repository }} --json tagName -q '.[].tagName' || echo "")
+          OTHER_TAGS_WITH_PREFIX=$(echo "$EXISTING_TAGS" | grep "^$VERSION" | grep -v -x "$VERSION" || true)
+          if [[ -n "$OTHER_TAGS_WITH_PREFIX" ]]; then
+            echo "Found other releases with prefix $VERSION: $OTHER_TAGS_WITH_PREFIX"
+            echo "version=$VERSION_SHA" >> $GITHUB_OUTPUT
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
       - name: Build release binary
         run: cargo build --locked --release --target ${{ matrix.target }}
       - name: Prepare binary (Linux)
@@ -230,29 +241,19 @@ jobs:
     name: Build, Scan & Push Docker Image
     needs: [ build ]
     runs-on: ubuntu-latest
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'pull_request'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     steps:
       - uses: actions/checkout@v5
-      - name: Set Docker tags
-        id: tags
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
-            echo "tags=ghcr.io/deadlock-api/deadlock-api-ingest:${{ needs.build.outputs.version }},ghcr.io/deadlock-api/deadlock-api-ingest:latest" >> $GITHUB_OUTPUT
-            echo "scan_image=ghcr.io/deadlock-api/deadlock-api-ingest:latest" >> $GITHUB_OUTPUT
-          else
-            echo "tags=ghcr.io/deadlock-api/deadlock-api-ingest:pr-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
-            echo "scan_image=ghcr.io/deadlock-api/deadlock-api-ingest:pr-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
-          fi
       - name: Build and load Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           load: true
-          tags: ${{ steps.tags.outputs.tags }}
+          tags: ghcr.io/deadlock-api/deadlock-api-ingest:${{ needs.build.outputs.version }},ghcr.io/deadlock-api/deadlock-api-ingest:latest
       - name: Scan for vulnerabilities
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ steps.tags.outputs.scan_image }}
+          image-ref: ghcr.io/deadlock-api/deadlock-api-ingest:latest
           format: 'table'
           exit-code: 0
           output: 'trivy-report.txt'
@@ -265,7 +266,7 @@ jobs:
       - name: Scan for vulnerabilities
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ steps.tags.outputs.scan_image }}
+          image-ref: ghcr.io/deadlock-api/deadlock-api-ingest:latest
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: 1
@@ -304,15 +305,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=${{ needs.build.outputs.version }}
-          VERSION_PREFIX=$(echo "$VERSION" | sed 's/-[^-]*$//')
-          EXISTING_TAGS=$(gh release list --repo ${{ github.repository }} --json tagName -q '.[].tagName' || echo "")
-          OTHER_TAGS_WITH_PREFIX=$(echo "$EXISTING_TAGS" | grep "^$VERSION_PREFIX" | grep -v -x "$VERSION" || true)
+          PRERELEASE=${{ needs.build.outputs.is_prerelease }}
           RELEASE_TITLE="Deadlock API Ingest $VERSION"
-          PRERELEASE="false"
-          if [[ -n "$OTHER_TAGS_WITH_PREFIX" ]]; then
-            echo "Found other releases with prefix $VERSION_PREFIX: $OTHER_TAGS_WITH_PREFIX"
+          if [[ -n "$PRERELEASE" && "$PRERELEASE" == "true" ]]; then
             RELEASE_TITLE="Nightly - Deadlock API Ingest $VERSION"
-            PRERELEASE="true"
           fi
           echo "release_title=$RELEASE_TITLE" >> $GITHUB_OUTPUT
           echo "prerelease=$PRERELEASE" >> $GITHUB_OUTPUT
