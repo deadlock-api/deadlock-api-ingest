@@ -161,6 +161,7 @@ jobs:
     runs-on: ${{ matrix.platform }}
     outputs:
       version: ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -186,9 +187,8 @@ jobs:
           VERSION="v${CARGO_VERSION}"
           VERSION_SHA="v${CARGO_VERSION}-${SHORT_SHA}"
           EXISTING_TAGS=$(gh release list --repo ${{ github.repository }} --json tagName -q '.[].tagName' || echo "")
-          OTHER_TAGS_WITH_PREFIX=$(echo "$EXISTING_TAGS" | grep "^$VERSION" | grep -v -x "$VERSION" || true)
-          if [[ -n "$OTHER_TAGS_WITH_PREFIX" ]]; then
-            echo "Found other releases with prefix $VERSION: $OTHER_TAGS_WITH_PREFIX"
+          if echo "$EXISTING_TAGS" | grep -x "$VERSION"; then
+            echo "Release for version $VERSION already exists. Creating a pre-release."
             echo "version=$VERSION_SHA" >> $GITHUB_OUTPUT
             echo "is_prerelease=true" >> $GITHUB_OUTPUT
           else
@@ -299,30 +299,16 @@ jobs:
           mkdir -p ./release-assets
           find ./artifacts -name "deadlock-api-ingest-*" -type f -exec cp {} ./release-assets/ \;
           ls -la ./release-assets/
-      - name: Check for existing release
-        id: release_info
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION=${{ needs.build.outputs.version }}
-          PRERELEASE=${{ needs.build.outputs.is_prerelease }}
-          RELEASE_TITLE="Deadlock API Ingest $VERSION"
-          if [[ -n "$PRERELEASE" && "$PRERELEASE" == "true" ]]; then
-            RELEASE_TITLE="Nightly - Deadlock API Ingest $VERSION"
-          fi
-          echo "release_title=$RELEASE_TITLE" >> $GITHUB_OUTPUT
-          echo "prerelease=$PRERELEASE" >> $GITHUB_OUTPUT
       - name: Create Release
         uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ needs.build.outputs.version }}
-          name: ${{ steps.release_info.outputs.release_title }}
+          name: |
+            ${{ needs.build.outputs.is_prerelease == 'true' && 'Nightly - ' || '' }}Deadlock API Ingest ${{ needs.build.outputs.version }}
           body: |
-            ## Deadlock API Ingest ${{ needs.build.outputs.version }}
-
-            ### Installation
+            ## Installation
 
             **Windows (PowerShell - Run as Administrator):**
             Open a Powershell window as an administrator and run the following command:
@@ -336,7 +322,7 @@ jobs:
             curl -fsSL https://github.com/deadlock-api/deadlock-api-ingest/releases/download/${{ needs.build.outputs.version }}/install-linux.sh | sudo bash
             ```
 
-            ### Changes
+            ## Changes
             - Latest updates from commit ${{ github.sha }}
           files: |
             ./release-assets/*
@@ -344,5 +330,5 @@ jobs:
             ./install-windows.ps1
             ./README.md
           draft: false
-          prerelease: ${{ steps.release_info.outputs.prerelease }}
+          prerelease: ${{ needs.build.outputs.is_prerelease }}
           make_latest: true
