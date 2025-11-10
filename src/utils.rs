@@ -3,6 +3,7 @@ use core::time::Duration;
 use serde::Serialize;
 use std::sync::OnceLock;
 use std::thread::sleep;
+use tracing::debug;
 use ureq::Error::StatusCode;
 
 static HTTP_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
@@ -61,7 +62,7 @@ impl Salts {
 
         loop {
             attempt += 1;
-            println!("Ingesting salts: {self:?} (retry {attempt}/{max_retries})");
+            debug!("Ingesting salts: {self:?} (retry {attempt}/{max_retries})");
             let response = HTTP_CLIENT
                 .get_or_init(ureq::Agent::new_with_defaults)
                 .post("https://api.deadlock-api.com/v1/matches/salts")
@@ -87,9 +88,9 @@ impl Salts {
         loop {
             attempt += 1;
             if attempt > 1 {
-                println!("Ingesting {num_salts} salts (retry {attempt}/{max_retries})");
+                debug!("Ingesting {num_salts} salts (retry {attempt}/{max_retries})");
             } else {
-                println!("Ingesting {num_salts} salts");
+                debug!("Ingesting {num_salts} salts");
             }
 
             let response = HTTP_CLIENT
