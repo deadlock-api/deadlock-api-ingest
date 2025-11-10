@@ -10,14 +10,32 @@
 #![deny(clippy::std_instead_of_core)]
 #![allow(clippy::unreadable_literal)]
 
+use tracing::{error, warn};
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+
 mod error;
 mod ingestion_cache;
 mod scan_cache;
 mod utils;
 
+fn init_tracing() {
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or(EnvFilter::new("debug,reqwest=warn,rustls=warn"));
+    let fmt_layer = tracing_subscriber::fmt::layer();
+
+    tracing_subscriber::registry()
+        .with(fmt_layer)
+        .with(env_filter)
+        .init();
+}
+
 fn main() {
+    init_tracing();
+
     let Ok(steam_dir) = steamlocate::SteamDir::locate() else {
-        eprintln!("Could not find Steam directory. Waiting 30s before exiting.");
+        error!("Could not find Steam directory. Waiting 30s before exiting.");
         std::thread::sleep(core::time::Duration::from_secs(30));
         return;
     };
@@ -44,7 +62,7 @@ fn main() {
             }
         }
         if !cache_dir.exists() {
-            eprintln!(
+            error!(
                 "Could not find Steam cache directory at {}. Waiting 30s before exiting.",
                 cache_dir.display()
             );
@@ -61,7 +79,7 @@ fn main() {
 
     loop {
         if let Err(e) = scan_cache::watch_cache_dir(&cache_dir) {
-            eprintln!("Error in cache watcher: {e:?}");
+            warn!("Error in cache watcher: {e:?}");
         }
         std::thread::sleep(core::time::Duration::from_secs(10));
     }

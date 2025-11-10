@@ -4,6 +4,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock};
+use tracing::warn;
 
 /// Maximum size for the log file before truncating (1GB)
 const MAX_LOG_SIZE: u64 = 1_073_741_824;
@@ -24,7 +25,7 @@ fn get_log_file_path() -> Option<PathBuf> {
 
     // Create directory if it doesn't exist
     if let Err(e) = std::fs::create_dir_all(&data_dir) {
-        eprintln!(
+        warn!(
             "Failed to create data directory at {}: {e:?}",
             data_dir.display()
         );
@@ -36,7 +37,7 @@ fn get_log_file_path() -> Option<PathBuf> {
 
 fn append_to_log_file(salt: &Salts) {
     let Some(log_path) = get_log_file_path() else {
-        eprintln!("Failed to determine log file path");
+        warn!("Failed to determine log file path");
         return;
     };
 
@@ -45,14 +46,14 @@ fn append_to_log_file(salt: &Salts) {
         && metadata.len() >= MAX_LOG_SIZE
         && let Err(e) = std::fs::remove_file(&log_path)
     {
-        eprintln!("Failed to truncate log file: {e:?}");
+        warn!("Failed to truncate log file: {e:?}");
     }
 
     // Serialize the salt to JSON
     let json_line = match serde_json::to_string(salt) {
         Ok(json) => json,
         Err(e) => {
-            eprintln!("Failed to serialize salt to JSON: {e:?}");
+            warn!("Failed to serialize salt to JSON: {e:?}");
             return;
         }
     };
@@ -61,14 +62,14 @@ fn append_to_log_file(salt: &Salts) {
     let mut file = match OpenOptions::new().create(true).append(true).open(&log_path) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("Failed to open log file at {}: {e:?}", log_path.display());
+            warn!("Failed to open log file at {}: {e:?}", log_path.display());
             return;
         }
     };
 
     // Write the JSON line followed by a newline
     if let Err(e) = writeln!(file, "{json_line}") {
-        eprintln!("Failed to write to log file: {e:?}");
+        warn!("Failed to write to log file: {e:?}");
     }
 }
 
@@ -79,7 +80,7 @@ pub(crate) fn mark_ingested(salt: &Salts) {
 
     let cache = INGESTION_CACHE.get_or_init(Default::default);
     let mut cache = cache.write().unwrap_or_else(|poisoned| {
-        eprintln!("Failed to lock ingestion cache for writing");
+        warn!("Failed to lock ingestion cache for writing");
         poisoned.into_inner()
     });
 
@@ -106,7 +107,7 @@ pub(crate) fn mark_ingested(salt: &Salts) {
 pub(crate) fn is_ingested(match_id: u64, is_metadata: bool) -> bool {
     let cache = INGESTION_CACHE.get_or_init(Default::default);
     let cache = cache.read().unwrap_or_else(|poisoned| {
-        eprintln!("Failed to lock ingestion cache for reading");
+        warn!("Failed to lock ingestion cache for reading");
         poisoned.into_inner()
     });
 

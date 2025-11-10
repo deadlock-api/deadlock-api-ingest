@@ -6,6 +6,7 @@ use notify::{RecursiveMode, Watcher};
 use std::fs;
 use std::io::Read;
 use std::path::Path;
+use tracing::{debug, info, warn};
 
 pub(super) fn scan_directory(dir: &Path, results: &mut Vec<(String, String)>) {
     if let Ok(entries) = fs::read_dir(dir) {
@@ -18,7 +19,7 @@ pub(super) fn scan_directory(dir: &Path, results: &mut Vec<(String, String)>) {
                 && let Some(url) = scan_file(&path)
             {
                 let file_path = path.display().to_string();
-                println!("Found: {file_path} -> {url}");
+                info!("Found: {file_path} -> {url}");
                 results.push((file_path, url));
             }
         }
@@ -91,7 +92,7 @@ fn extract_replay_url(data: &[u8]) -> Option<String> {
 }
 
 pub(super) fn initial_cache_dir_ingest(cache_dir: &Path) {
-    println!("Scanning cache directory: {}", cache_dir.display());
+    debug!("Scanning cache directory: {}", cache_dir.display());
     let mut results = Vec::new();
     scan_directory(cache_dir, &mut results);
     let salts = results
@@ -110,12 +111,12 @@ pub(super) fn initial_cache_dir_ingest(cache_dir: &Path) {
                 ingestion_cache::mark_ingested(salt);
             }
         }
-        Err(e) => eprintln!("Failed to ingest salts: {e:?}"),
+        Err(e) => warn!("Failed to ingest salts: {e:?}"),
     }
 }
 
 pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
-    println!("Watching cache directory: {}", cache_dir.display());
+    debug!("Watching cache directory: {}", cache_dir.display());
     let (tx, rx) = std::sync::mpsc::channel();
     let mut watcher = notify::recommended_watcher(tx)?;
     watcher.watch(cache_dir, RecursiveMode::Recursive)?;
@@ -145,10 +146,10 @@ pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
 
                 match salts.ingest() {
                     Ok(..) => {
-                        println!("Ingested salts: {salts:?}");
+                        info!("Ingested salts: {salts:?}");
                         ingestion_cache::mark_ingested(&salts);
                     }
-                    Err(e) => eprintln!("Failed to ingest salts: {e:?}"),
+                    Err(e) => warn!("Failed to ingest salts: {e:?}"),
                 }
             }
         }
