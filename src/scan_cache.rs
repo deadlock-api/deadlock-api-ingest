@@ -124,8 +124,8 @@ pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
     while let Ok(Ok(event)) = rx.recv() {
         if !matches!(
             event.kind,
-            notify::EventKind::Modify(ModifyKind::Data(_))
-                | notify::EventKind::Create(CreateKind::File)
+            notify::EventKind::Create(CreateKind::File | CreateKind::Any)
+                | notify::EventKind::Modify(ModifyKind::Data(_))
         ) {
             continue;
         }
