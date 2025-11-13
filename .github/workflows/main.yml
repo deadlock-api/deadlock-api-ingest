@@ -217,7 +217,7 @@ jobs:
 
   build-cache-nix:
     name: Build & Cache Nix Package
-    needs: [ build ]
+    needs: [ fmt, deps, audit, typos, lint, test, shellcheck-installer, powershell-analyzer ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
