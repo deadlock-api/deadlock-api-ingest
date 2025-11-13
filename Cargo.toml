@@ -1,13 +1,13 @@
 [package]
 name = "deadlock-api-ingest"
-version = "0.2.0"
+version = "0.2.1"
 description = "Deadlock API Ingest"
 repository = "https://github.com/deadlock-api/deadlock-api-ingest"
 license = "MIT"
 edition = "2024"
 
 [dependencies]
-ureq = { version = "3.1.2", default-features = false, features = ["json", "rustls"] }
+ureq = { version = "3.1.4", default-features = false, features = ["json", "rustls"] }
 memchr = "2.7.6"
 notify = "8.2.0"
 serde = { version = "1.0.228", features = ["derive"] }
