@@ -265,7 +265,7 @@ WshShell.Run """$ExecutablePath""", 0, False
                 $taskTrigger = New-ScheduledTaskTrigger -AtLogOn
 
                 # Define the user and permissions (run as current user with standard privileges)
-                $taskPrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
+                $taskPrincipal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U -RunLevel Limited
 
                 # Define settings (allow it to run indefinitely, prevent multiple instances)
                 $taskSettings = New-ScheduledTaskSettingsSet `
