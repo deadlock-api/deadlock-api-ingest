@@ -254,12 +254,20 @@ function Set-StartupTask {
                 $vbsWrapperPath = Join-Path -Path $InstallDir -ChildPath "run-hidden.vbs"
                 $vbsContent = @"
 Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run """$ExecutablePath""", 0, False
+args = ""
+For Each arg In WScript.Arguments
+    args = args & " " & arg
+Next
+WshShell.Run """$ExecutablePath""" & args, 0, False
 "@
                 Set-Content -Path $vbsWrapperPath -Value $vbsContent -Force
 
-                # Define the action (run the VBS wrapper with wscript.exe to hide the window)
-                $taskAction = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbsWrapperPath`"" -WorkingDirectory $InstallDir
+                # Define the action (run the VBS wrapper with wscript.exe, forwarding extra args to the exe)
+                $vbsArgs = "`"$vbsWrapperPath`""
+                if ($extraArgs -ne "") {
+                    $vbsArgs = "`"$vbsWrapperPath`" $extraArgs"
+                }
+                $taskAction = New-ScheduledTaskAction -Execute "wscript.exe" -Argument $vbsArgs -WorkingDirectory $InstallDir
 
                 # Define the trigger (when to run it - at user logon)
                 $taskTrigger = New-ScheduledTaskTrigger -AtLogOn
@@ -394,6 +402,84 @@ try {
 
     Write-InstallLog -Level 'INFO' "Installing application..."
 
+    # Check if running in interactive mode (used by all prompts below)
+    $isInteractive = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
+
+    # Ask user if they want Statlocker integration
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "    STATLOCKER INTEGRATION (OPTIONAL)   " -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Statlocker integration sends match IDs to statlocker.gg after each ingestion." -ForegroundColor White
+    Write-Host "This helps track community match statistics. No personal data is sent." -ForegroundColor White
+    Write-Host ""
+    Write-Host "Enable Statlocker integration? (Y/N): " -ForegroundColor Yellow -NoNewline
+
+    $enableStatlocker = $false
+    $statlockerAttempts = 0
+    $maxStatlockerAttempts = 2
+
+    if (-not $isInteractive) {
+        Write-Host "Y (default in non-interactive mode)" -ForegroundColor Cyan
+        Write-InstallLog -Level 'INFO' "Non-interactive mode detected. Enabling Statlocker integration by default."
+        $enableStatlocker = $true
+    } else {
+        $timeoutSeconds = 10
+        $startTime = Get-Date
+        $keyPressed = $false
+
+        while ($statlockerAttempts -lt $maxStatlockerAttempts -and -not $keyPressed) {
+            if ([Console]::KeyAvailable) {
+                $response = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                $key = $response.Character.ToString().ToUpper()
+
+                if ($key -eq "Y" -or $key -eq "N") {
+                    Write-Host $key -ForegroundColor Cyan
+                    if ($key -eq "Y") {
+                        $enableStatlocker = $true
+                    }
+                    $keyPressed = $true
+                    break
+                } else {
+                    $statlockerAttempts++
+                    if ($statlockerAttempts -lt $maxStatlockerAttempts) {
+                        Write-Host ""
+                        Write-Host "Invalid response. Please enter 'Y' for yes or 'N' for no." -ForegroundColor Yellow
+                        Write-Host "Enable Statlocker integration? (Y/N): " -ForegroundColor Yellow -NoNewline
+                    }
+                }
+            }
+
+            # Check timeout
+            if (((Get-Date) - $startTime).TotalSeconds -ge $timeoutSeconds -and -not $keyPressed) {
+                Write-Host "Y (timeout - defaulting to yes)" -ForegroundColor Cyan
+                Write-InstallLog -Level 'INFO' "No response received within $timeoutSeconds seconds. Enabling Statlocker integration by default."
+                $enableStatlocker = $true
+                $keyPressed = $true
+                break
+            }
+
+            Start-Sleep -Milliseconds 100
+        }
+
+        if (-not $keyPressed) {
+            Write-Host "Y (max attempts reached - defaulting to yes)" -ForegroundColor Cyan
+            Write-InstallLog -Level 'INFO' "Maximum attempts reached. Enabling Statlocker integration by default."
+            $enableStatlocker = $true
+        }
+    }
+
+    Write-Host ""
+
+    $extraArgs = ""
+    if ($enableStatlocker) {
+        Write-InstallLog -Level 'SUCCESS' "Statlocker integration enabled."
+    } else {
+        $extraArgs = "--no-statlocker"
+        Write-InstallLog -Level 'INFO' "Statlocker integration disabled."
+    }
+
     # Ask user if they want auto-start
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Cyan
@@ -409,9 +495,6 @@ try {
     $enableAutoStart = $false
     $autoStartAttempts = 0
     $maxAutoStartAttempts = 2
-
-    # Check if running in interactive mode
-    $isInteractive = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
 
     if (-not $isInteractive) {
         Write-Host "Y (default in non-interactive mode)" -ForegroundColor Cyan
@@ -551,11 +634,15 @@ try {
 
         if ($createShortcut) {
             # Create main shortcut
-            New-DesktopShortcut -ExecutablePath $downloadPath
+            New-DesktopShortcut -ExecutablePath $downloadPath -Arguments $extraArgs
 
             # Create "once" shortcut for initial cache ingest only
+            $onceArgs = "--once"
+            if ($extraArgs -ne "") {
+                $onceArgs = "--once $extraArgs"
+            }
             New-DesktopShortcut -ExecutablePath $downloadPath `
-                -Arguments "--once" `
+                -Arguments $onceArgs `
                 -ShortcutName "$AppName (Once)" `
                 -Description "Deadlock API Ingest - Scan existing Steam cache once and exit"
 

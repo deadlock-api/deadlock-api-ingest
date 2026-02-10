@@ -234,9 +234,15 @@ manage_service() {
             ;;
         "create")
             local executable_path="$2"
+            local service_extra_args="${3:-}"
 
             # Create systemd user directory if it doesn't exist
             mkdir -p "$SYSTEMD_USER_DIR"
+
+            local exec_start="$executable_path"
+            if [[ -n "$service_extra_args" ]]; then
+                exec_start="$executable_path $service_extra_args"
+            fi
 
             cat > "$SYSTEMD_SERVICE_FILE" << EOF
 [Unit]
@@ -245,7 +251,7 @@ Documentation=https://github.com/deadlock-api/deadlock-api-ingest
 
 [Service]
 Type=simple
-ExecStart=$executable_path
+ExecStart=$exec_start
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -331,6 +337,50 @@ prompt_for_autostart() {
     return 0
 }
 
+# Function to prompt user for Statlocker integration
+prompt_for_statlocker() {
+    # Check if we're running in an interactive terminal
+    if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then
+        log "INFO" "Non-interactive mode detected. Enabling Statlocker integration by default."
+        return 0
+    fi
+
+    log "INFO" "Statlocker integration sends match IDs to statlocker.gg after each ingestion."
+    log "INFO" "This helps track community match statistics. No personal data is sent."
+    echo >&2
+
+    local attempts=0
+    local max_attempts=2
+
+    while [[ $attempts -lt $max_attempts ]]; do
+        echo -n "Would you like to enable Statlocker integration? (y/n): " >&2
+
+        local response
+        if read -t 10 -r response; then
+            case "${response,,}" in
+                y|yes)
+                    return 0
+                    ;;
+                n|no)
+                    return 1
+                    ;;
+                *)
+                    attempts=$((attempts + 1))
+                    if [[ $attempts -lt $max_attempts ]]; then
+                        echo "Invalid response. Please enter 'y' for yes or 'n' for no." >&2
+                    fi
+                    ;;
+            esac
+        else
+            log "INFO" "No response received within 10 seconds. Enabling Statlocker integration by default."
+            return 0
+        fi
+    done
+
+    log "INFO" "Maximum attempts reached. Enabling Statlocker integration by default."
+    return 0
+}
+
 # --- Main Installation Logic ---
 main() {
     log "INFO" "Starting Deadlock API Ingest installation..."
@@ -395,8 +445,17 @@ main() {
         log "INFO" "You can manually download it from: $uninstall_script_url"
     fi
 
+    # Prompt user for Statlocker integration
+    local extra_args=""
+    if ! prompt_for_statlocker; then
+        extra_args="--no-statlocker"
+        log "INFO" "Statlocker integration disabled."
+    else
+        log "SUCCESS" "Statlocker integration enabled."
+    fi
+
     # Create the main service (but don't enable/start it yet)
-    manage_service "create" "$final_executable_path"
+    manage_service "create" "$final_executable_path" "$extra_args"
 
     # Prompt user for auto-start setup
     if prompt_for_autostart; then
@@ -458,12 +517,16 @@ main() {
             local main_created=false
             local once_created=false
 
-            if create_desktop_shortcut "$final_executable_path" "" "Deadlock API Ingest" "Monitors Steam cache for Deadlock match replays"; then
+            if create_desktop_shortcut "$final_executable_path" "$extra_args" "Deadlock API Ingest" "Monitors Steam cache for Deadlock match replays"; then
                 main_created=true
             fi
 
             # Create "once" shortcut for initial cache ingest only
-            if create_desktop_shortcut "$final_executable_path" "--once" "Deadlock API Ingest (Once)" "Scan existing Steam cache once and exit"; then
+            local once_args="--once"
+            if [[ -n "$extra_args" ]]; then
+                once_args="--once $extra_args"
+            fi
+            if create_desktop_shortcut "$final_executable_path" "$once_args" "Deadlock API Ingest (Once)" "Scan existing Steam cache once and exit"; then
                 once_created=true
             fi
 
