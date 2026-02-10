@@ -18,6 +18,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 mod error;
 mod ingestion_cache;
 mod scan_cache;
+mod statlocker;
 mod utils;
 
 fn init_tracing() {
@@ -33,6 +34,10 @@ fn init_tracing() {
 
 fn main() {
     init_tracing();
+
+    if std::env::args().any(|arg| arg == "--no-statlocker") {
+        statlocker::disable();
+    }
 
     let Ok(steam_dir) = steamlocate::SteamDir::locate() else {
         error!("Could not find Steam directory. Waiting 30s before exiting.");
