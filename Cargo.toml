@@ -7,8 +7,8 @@ license = "MIT"
 edition = "2024"
 
 [dependencies]
-ureq = { version = "3.1.4", default-features = false, features = ["json", "rustls"] }
-memchr = "2.7.6"
+ureq = { version = "3.2.0", default-features = false, features = ["json", "rustls"] }
+memchr = "2.8.0"
 notify = "8.2.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0"
@@ -19,7 +19,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 
 [dev-dependencies]
-sysinfo = "0.38.0"
+sysinfo = "0.38.1"
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
 winres = "0.1"
