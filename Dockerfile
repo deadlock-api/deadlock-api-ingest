@@ -1,4 +1,4 @@
-FROM rust:1.91-slim-trixie AS chef
+FROM rust:1.93-slim-trixie AS chef
 RUN apt-get update \
     && apt-get install -y --no-install-recommends sccache ca-certificates gcc libssl-dev pkg-config cmake build-essential clang
 RUN cargo install --locked cargo-chef
