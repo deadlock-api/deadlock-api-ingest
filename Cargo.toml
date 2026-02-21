@@ -1,6 +1,6 @@
 [package]
 name = "deadlock-api-ingest"
-version = "0.2.4"
+version = "0.2.5"
 description = "Deadlock API Ingest"
 repository = "https://github.com/deadlock-api/deadlock-api-ingest"
 license = "MIT"
