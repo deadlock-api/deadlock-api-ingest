@@ -686,6 +686,12 @@ if (-not $script:HasErrors) {
 
     Write-Host " "
 
+    # Show log file location
+    $LogDir = "$env:APPDATA\$AppName\logs"
+    Write-Host "Log files are written to: $LogDir" -ForegroundColor White
+    Write-Host "  Logs rotate daily and the last 7 days are kept." -ForegroundColor White
+    Write-Host " "
+
     if ($autoStartEnabled) {
         Write-Host "You can manage the main task via the Task Scheduler (taskschd.msc) or PowerShell:" -ForegroundColor White
         Write-Host "  - Check status:  Get-ScheduledTask -TaskName $AppName | Get-ScheduledTaskInfo" -ForegroundColor Yellow
