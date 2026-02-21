@@ -565,6 +565,7 @@ main() {
         echo -e "You can manage the main service with the following commands:"
         echo -e "  - Check status:  ${YELLOW}systemctl --user status $SERVICE_NAME${NC}"
         echo -e "  - View logs:     ${YELLOW}journalctl --user -u $SERVICE_NAME -f${NC}"
+        echo -e "  - Log files:     ${YELLOW}\${XDG_DATA_HOME:-\$HOME/.local/share}/$APP_NAME/logs/${NC}"
         echo -e "  - Stop service:  ${YELLOW}systemctl --user stop $SERVICE_NAME${NC}"
         echo -e "  - Start service: ${YELLOW}systemctl --user start $SERVICE_NAME${NC}"
         if ! systemctl --user is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then

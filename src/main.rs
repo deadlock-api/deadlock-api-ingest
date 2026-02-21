@@ -10,7 +10,9 @@
 #![deny(clippy::std_instead_of_core)]
 #![allow(clippy::unreadable_literal)]
 
-use tracing::{error, warn};
+use std::path::PathBuf;
+
+use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -21,19 +23,49 @@ mod scan_cache;
 mod statlocker;
 mod utils;
 
+/// Returns the directory for log files.
+/// - Linux: `~/.local/share/deadlock-api-ingest/logs/`
+/// - macOS: `~/Library/Application Support/deadlock-api-ingest/logs/`
+/// - Windows: `C:\Users\<User>\AppData\Roaming\deadlock-api-ingest\logs\`
+fn get_log_dir() -> Option<PathBuf> {
+    let log_dir = dirs::data_dir()?.join("deadlock-api-ingest").join("logs");
+    std::fs::create_dir_all(&log_dir).ok()?;
+    Some(log_dir)
+}
+
 fn init_tracing() {
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or(EnvFilter::new("debug,reqwest=warn,rustls=warn"));
-    let fmt_layer = tracing_subscriber::fmt::layer();
+    let stdout_layer = tracing_subscriber::fmt::layer();
+
+    let file_layer = get_log_dir().and_then(|log_dir| {
+        tracing_appender::rolling::RollingFileAppender::builder()
+            .rotation(tracing_appender::rolling::Rotation::DAILY)
+            .filename_prefix("deadlock-api-ingest")
+            .filename_suffix("log")
+            .max_log_files(7)
+            .build(&log_dir)
+            .ok()
+            .map(|appender| {
+                tracing_subscriber::fmt::layer()
+                    .with_writer(appender)
+                    .with_ansi(false)
+            })
+    });
 
     tracing_subscriber::registry()
-        .with(fmt_layer)
+        .with(stdout_layer)
+        .with(file_layer)
         .with(env_filter)
         .init();
 }
 
 fn main() {
     init_tracing();
+
+    if let Some(log_dir) = get_log_dir() {
+        info!("Log files are being written to: {}", log_dir.display());
+    }
 
     if std::env::args().any(|arg| arg == "--no-statlocker") {
         statlocker::disable();
