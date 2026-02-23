@@ -19,8 +19,11 @@ tracing = "0.1.44"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 
-[dev-dependencies]
-sysinfo = "0.38.1"
+[target.'cfg(target_os = "windows")'.dependencies]
+winreg = "0.55.0"
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
 winres = "0.1"
+
+[dev-dependencies]
+sysinfo = "0.38.1"
