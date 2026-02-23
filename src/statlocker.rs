@@ -22,8 +22,13 @@ fn sender() -> &'static mpsc::SyncSender<u64> {
         std::thread::Builder::new()
             .name("statlocker".into())
             .spawn(move || {
+                let username = crate::steam_user::current_steam_id3();
                 for match_id in rx {
-                    let url = format!("https://statlocker.gg/api/match/{match_id}/populate");
+                    let url = if let Some(id) = username {
+                        format!("https://statlocker.gg/api/match/{match_id}/populate?username=ingest-tool:{id}")
+                    } else {
+                        format!("https://statlocker.gg/api/match/{match_id}/populate")
+                    };
                     debug!("Notifying Statlocker for match {match_id}");
 
                     match client().get(&url).call() {

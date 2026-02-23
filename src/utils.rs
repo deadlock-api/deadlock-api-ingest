@@ -14,6 +14,22 @@ pub(super) struct Salts {
     pub(super) cluster_id: u32,
     pub(super) metadata_salt: Option<u32>,
     pub(super) replay_salt: Option<u32>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_username"
+    )]
+    pub(super) username: Option<u32>,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref, clippy::ref_option)]
+fn serialize_username<S: serde::Serializer>(
+    value: &Option<u32>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match value {
+        Some(id) => serializer.serialize_str(&format!("ingest-tool:{id}")),
+        None => serializer.serialize_none(),
+    }
 }
 
 impl Salts {
@@ -36,6 +52,7 @@ impl Salts {
                 match_id: match_str.parse().ok()?,
                 metadata_salt: salt_str.parse().ok(),
                 replay_salt: None,
+                username: crate::steam_user::current_steam_id3(),
             })
         } else if name.ends_with(".dem.bz2") {
             let name = name.strip_suffix(".dem.bz2")?;
@@ -46,6 +63,7 @@ impl Salts {
                 match_id: match_str.parse().ok()?,
                 replay_salt: salt_str.parse().ok(),
                 metadata_salt: None,
+                username: crate::steam_user::current_steam_id3(),
             })
         } else {
             None

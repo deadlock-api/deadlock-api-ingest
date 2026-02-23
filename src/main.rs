@@ -21,6 +21,7 @@ mod error;
 mod ingestion_cache;
 mod scan_cache;
 mod statlocker;
+mod steam_user;
 mod utils;
 
 /// Returns the directory for log files.
