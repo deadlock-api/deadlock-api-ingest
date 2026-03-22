@@ -12,10 +12,31 @@
 
 use std::path::PathBuf;
 
+use clap::Parser;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+
+/// Deadlock API Ingest — uploads match data from Steam's HTTP cache.
+#[derive(Parser)]
+#[command(version)]
+struct Args {
+    /// Disable statlocker integration
+    #[arg(long)]
+    no_statlocker: bool,
+
+    /// Ingest once and exit (no file watching)
+    #[arg(long)]
+    once: bool,
+
+    /// Game command to wrap (launch wrapper mode).
+    /// When provided, the watcher runs in the background while the game
+    /// runs as a child process, and exits when the game exits.
+    /// Usage: deadlock-api-ingest -- %command%
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    command: Vec<String>,
+}
 
 mod error;
 mod ingestion_cache;
@@ -64,11 +85,13 @@ fn init_tracing() {
 fn main() {
     init_tracing();
 
+    let args = Args::parse();
+
     if let Some(log_dir) = get_log_dir() {
         info!("Log files are being written to: {}", log_dir.display());
     }
 
-    if std::env::args().any(|arg| arg == "--no-statlocker") {
+    if args.no_statlocker {
         statlocker::disable();
     }
 
@@ -111,8 +134,32 @@ fn main() {
 
     scan_cache::initial_cache_dir_ingest(&cache_dir);
 
-    if std::env::args().any(|arg| arg == "--once") {
+    if args.once {
         std::process::exit(0);
+    }
+
+    // Launch wrapper mode: start watcher in background, run game, exit when game exits
+    if !args.command.is_empty() {
+        std::thread::spawn(move || {
+            loop {
+                if let Err(e) = scan_cache::watch_cache_dir(&cache_dir) {
+                    warn!("Error in cache watcher: {e:?}");
+                }
+                std::thread::sleep(core::time::Duration::from_secs(10));
+            }
+        });
+
+        info!("Launching game: {}", args.command.join(" "));
+        let status = std::process::Command::new(&args.command[0])
+            .args(&args.command[1..])
+            .status();
+
+        match &status {
+            Ok(s) => info!("Game exited with status: {s}"),
+            Err(e) => error!("Failed to launch game command '{}': {e}", args.command[0]),
+        }
+
+        std::process::exit(status.map_or(1, |s| s.code().unwrap_or(0)));
     }
 
     loop {

@@ -143,6 +143,31 @@ systemd.user.services.deadlock-api-ingest = {
 
 Then enable: `systemctl --user enable --now deadlock-api-ingest`
 
+## Steam Launch Option (Alternative to Background Service)
+
+Instead of running the ingest service as a persistent background process, you can configure it to run only while Deadlock is active by using Steam's launch options. The service will start when you launch the game and automatically stop when the game exits.
+
+1. Download the binary to a known location (e.g., `~/.local/bin/deadlock-api-ingest` on Linux or `%LOCALAPPDATA%\deadlock-api-ingest\deadlock-api-ingest.exe` on Windows)
+2. In Steam, right-click **Deadlock** → **Properties** → **General** → **Launch Options**
+3. Set the launch option:
+
+**Linux:**
+```
+/home/YOUR_USER/.local/bin/deadlock-api-ingest -- %command%
+```
+
+**Windows:**
+```
+"C:\Users\YOUR_USER\AppData\Local\deadlock-api-ingest\deadlock-api-ingest.exe" -- %command%
+```
+
+You can also combine it with existing flags:
+```
+deadlock-api-ingest --no-statlocker -- %command%
+```
+
+> **Note:** If you use this approach, you should disable or remove any existing background service (systemd, Task Scheduler, etc.) to avoid running two instances simultaneously.
+
 ## Uninstallation
 
 ### Windows
