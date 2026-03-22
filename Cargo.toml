@@ -7,7 +7,7 @@ license = "MIT"
 edition = "2024"
 
 [dependencies]
-ureq = { version = "3.2.0", default-features = false, features = ["json", "rustls"] }
+ureq = { version = "3.3.0", default-features = false, features = ["json", "rustls"] }
 memchr = "2.8.0"
 notify = "8.2.0"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -17,13 +17,13 @@ dirs = "6.0.0"
 walkdir = "2.5.0"
 tracing = "0.1.44"
 tracing-appender = "0.2"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-winreg = "0.55.0"
+winreg = "0.56.0"
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
 winres = "0.1"
 
 [dev-dependencies]
-sysinfo = "0.38.1"
+sysinfo = "0.38.4"
