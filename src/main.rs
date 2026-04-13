@@ -82,6 +82,24 @@ fn init_tracing() {
         .init();
 }
 
+fn run_launch_wrapper<F: FnOnce() + Send + 'static>(background_work: F, command: &[String]) -> i32 {
+    std::thread::spawn(background_work);
+    info!("Launching game: {}", command.join(" "));
+    match std::process::Command::new(&command[0])
+        .args(&command[1..])
+        .status()
+    {
+        Ok(s) => {
+            info!("Game exited with status: {s}");
+            s.code().unwrap_or(0)
+        }
+        Err(e) => {
+            error!("Failed to launch game command '{}': {e}", command[0]);
+            1
+        }
+    }
+}
+
 fn main() {
     init_tracing();
 
@@ -132,34 +150,26 @@ fn main() {
         }
     }
 
+    if !args.command.is_empty() {
+        let exit_code = run_launch_wrapper(
+            move || {
+                scan_cache::initial_cache_dir_ingest(&cache_dir);
+                loop {
+                    if let Err(e) = scan_cache::watch_cache_dir(&cache_dir) {
+                        warn!("Error in cache watcher: {e:?}");
+                    }
+                    std::thread::sleep(core::time::Duration::from_secs(10));
+                }
+            },
+            &args.command,
+        );
+        std::process::exit(exit_code);
+    }
+
     scan_cache::initial_cache_dir_ingest(&cache_dir);
 
     if args.once {
         std::process::exit(0);
-    }
-
-    // Launch wrapper mode: start watcher in background, run game, exit when game exits
-    if !args.command.is_empty() {
-        std::thread::spawn(move || {
-            loop {
-                if let Err(e) = scan_cache::watch_cache_dir(&cache_dir) {
-                    warn!("Error in cache watcher: {e:?}");
-                }
-                std::thread::sleep(core::time::Duration::from_secs(10));
-            }
-        });
-
-        info!("Launching game: {}", args.command.join(" "));
-        let status = std::process::Command::new(&args.command[0])
-            .args(&args.command[1..])
-            .status();
-
-        match &status {
-            Ok(s) => info!("Game exited with status: {s}"),
-            Err(e) => error!("Failed to launch game command '{}': {e}", args.command[0]),
-        }
-
-        std::process::exit(status.map_or(1, |s| s.code().unwrap_or(0)));
     }
 
     loop {
@@ -167,5 +177,41 @@ fn main() {
             warn!("Error in cache watcher: {e:?}");
         }
         std::thread::sleep(core::time::Duration::from_secs(10));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    fn test_launch_wrapper_starts_command_promptly() {
+        let marker =
+            std::env::temp_dir().join(format!("deadlock-launch-test-{}", std::process::id()));
+        let _ = std::fs::remove_file(&marker);
+
+        let command = vec!["touch".to_string(), marker.to_str().unwrap().to_string()];
+
+        let start = Instant::now();
+        let exit_code = run_launch_wrapper(
+            || std::thread::sleep(core::time::Duration::from_secs(30)),
+            &command,
+        );
+        let elapsed = start.elapsed();
+
+        assert_eq!(exit_code, 0, "wrapped command should exit successfully");
+        assert!(
+            marker.exists(),
+            "wrapped command should have created marker file"
+        );
+        assert!(
+            elapsed < core::time::Duration::from_secs(5),
+            "Wrapped command took {:.1}s to complete (limit 5s). \
+             The background work is blocking game launch.",
+            elapsed.as_secs_f64()
+        );
+
+        let _ = std::fs::remove_file(&marker);
     }
 }
