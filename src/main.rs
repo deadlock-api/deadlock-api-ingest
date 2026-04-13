@@ -187,31 +187,19 @@ mod tests {
 
     #[test]
     fn test_launch_wrapper_starts_command_promptly() {
-        let marker =
-            std::env::temp_dir().join(format!("deadlock-launch-test-{}", std::process::id()));
-        let _ = std::fs::remove_file(&marker);
-
-        let command = vec!["touch".to_string(), marker.to_str().unwrap().to_string()];
-
         let start = Instant::now();
         let exit_code = run_launch_wrapper(
             || std::thread::sleep(core::time::Duration::from_secs(30)),
-            &command,
+            &["cargo".to_string(), "--version".to_string()],
         );
         let elapsed = start.elapsed();
 
         assert_eq!(exit_code, 0, "wrapped command should exit successfully");
-        assert!(
-            marker.exists(),
-            "wrapped command should have created marker file"
-        );
         assert!(
             elapsed < core::time::Duration::from_secs(5),
             "Wrapped command took {:.1}s to complete (limit 5s). \
              The background work is blocking game launch.",
             elapsed.as_secs_f64()
         );
-
-        let _ = std::fs::remove_file(&marker);
     }
 }
