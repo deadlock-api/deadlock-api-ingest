@@ -22,6 +22,10 @@ use tracing_subscriber::util::SubscriberInitExt;
 #[derive(Parser)]
 #[command(version)]
 struct Args {
+    /// Disable Steam Game Coordinator match-salt recovery
+    #[arg(long)]
+    no_gc: bool,
+
     /// Ingest once and exit (no file watching)
     #[arg(long)]
     once: bool,
@@ -35,6 +39,7 @@ struct Args {
 }
 
 mod error;
+mod gc;
 mod ingestion_cache;
 mod scan_cache;
 mod steam_user;
@@ -160,7 +165,14 @@ fn main() {
     scan_cache::initial_cache_dir_ingest(&cache_dir);
 
     if args.once {
+        if !args.no_gc {
+            gc::run_pass_blocking();
+        }
         std::process::exit(0);
+    }
+
+    if !args.no_gc {
+        gc::spawn_background();
     }
 
     loop {
