@@ -71,7 +71,7 @@ impl Salts {
     }
 
     pub(crate) fn ingest(&self) -> Result<(), Error> {
-        if self.match_id > 100000000 {
+        if self.match_id > 10000000000 {
             return Err(Error::MatchIdTooLarge);
         }
 
