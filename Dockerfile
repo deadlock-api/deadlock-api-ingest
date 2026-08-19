@@ -28,6 +28,7 @@ LABEL org.opencontainers.image.source="https://github.com/deadlock-api/deadlock-
       org.opencontainers.image.description="Deadlock API ingest service" \
       org.opencontainers.image.licenses="MIT"
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends ca-certificates libssl-dev openssl libc6 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
