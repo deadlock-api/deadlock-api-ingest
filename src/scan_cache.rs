@@ -1,5 +1,5 @@
 use crate::ingestion_cache;
-use crate::statlocker;
+use crate::notifier;
 use crate::utils::Salts;
 use memchr::{memchr, memmem};
 use notify::event::{CreateKind, ModifyKind};
@@ -104,7 +104,7 @@ pub(super) fn initial_cache_dir_ingest(cache_dir: &Path) {
                 ingestion_cache::mark_ingested(salt);
             }
             let match_ids: Vec<u64> = salts.iter().map(|s| s.match_id).collect();
-            statlocker::notify_many(&match_ids);
+            notifier::notify_many(&match_ids);
         }
         Err(e) => warn!("Failed to ingest salts: {e:?}"),
     }
@@ -144,7 +144,7 @@ pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
                     Ok(..) => {
                         info!("Ingested salts: {salts:?}");
                         ingestion_cache::mark_ingested(&salts);
-                        statlocker::notify(salts.match_id);
+                        notifier::notify(salts.match_id);
                     }
                     Err(e) => warn!("Failed to ingest salts: {e:?}"),
                 }

@@ -42,6 +42,12 @@ in {
       description = "Whether to enable Statlocker integration (sends match IDs to statlocker.gg after ingestion)";
     };
 
+    deadchaps.enable = mkOption {
+      type = types.bool;
+      default = true;
+      description = "Whether to enable DeadChaps integration (sends match IDs to deadchaps.gg after ingestion)";
+    };
+
     steamUser = mkOption {
       type = types.nullOr types.str;
       default = cfg.user;
@@ -84,7 +90,7 @@ in {
         Type = "simple";
         User = cfg.user;
         Group = cfg.group;
-        ExecStart = "${cfg.package}/bin/deadlock-api-ingest${lib.optionalString (!cfg.statlocker.enable) " --no-statlocker"}";
+        ExecStart = "${cfg.package}/bin/deadlock-api-ingest${lib.optionalString (!cfg.statlocker.enable) " --no-statlocker"}${lib.optionalString (!cfg.deadchaps.enable) " --no-deadchaps"}";
         Restart = "on-failure";
         RestartSec = "10s";
 

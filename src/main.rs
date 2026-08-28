@@ -26,6 +26,10 @@ struct Args {
     #[arg(long)]
     no_statlocker: bool,
 
+    /// Disable DeadChaps integration
+    #[arg(long)]
+    no_deadchaps: bool,
+
     /// Ingest once and exit (no file watching)
     #[arg(long)]
     once: bool,
@@ -38,8 +42,10 @@ struct Args {
     command: Vec<String>,
 }
 
+mod deadchaps;
 mod error;
 mod ingestion_cache;
+mod notifier;
 mod scan_cache;
 mod statlocker;
 mod steam_user;
@@ -110,7 +116,10 @@ fn main() {
     }
 
     if args.no_statlocker {
-        statlocker::disable();
+        statlocker::TARGET.disable();
+    }
+    if args.no_deadchaps {
+        deadchaps::TARGET.disable();
     }
 
     let Ok(steam_dir) = steamlocate::SteamDir::locate() else {

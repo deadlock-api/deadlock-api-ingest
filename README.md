@@ -163,7 +163,7 @@ Instead of running the ingest service as a persistent background process, you ca
 
 You can also combine it with existing flags:
 ```
-deadlock-api-ingest --no-statlocker -- %command%
+deadlock-api-ingest --no-statlocker --no-deadchaps -- %command%
 ```
 
 > **Note:** If you use this approach, you should disable or remove any existing background service (systemd, Task Scheduler, etc.) to avoid running two instances simultaneously.
