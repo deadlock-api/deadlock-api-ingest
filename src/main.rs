@@ -26,7 +26,7 @@ struct Args {
     #[arg(long)]
     no_statlocker: bool,
 
-    /// Disable DeadChaps integration
+    /// Disable deadchaps integration
     #[arg(long)]
     no_deadchaps: bool,
 
