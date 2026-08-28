@@ -109,3 +109,42 @@ pub(crate) fn notify_many(match_ids: &[u64]) {
         notify(id);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    static PORT: OnceLock<u16> = OnceLock::new();
+
+    fn local_url(match_id: u64, _user: Option<u32>) -> String {
+        let port = PORT.get().copied().unwrap_or_default();
+        format!("http://127.0.0.1:{port}/api/match/{match_id}/populate")
+    }
+
+    static LOCAL: Target = Target::new("Local", local_url);
+
+    #[test]
+    fn a_notified_match_is_requested_from_the_target() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        PORT.set(listener.local_addr().unwrap().port()).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 2048];
+            let n = stream.read(&mut buf).unwrap();
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .unwrap();
+            String::from_utf8_lossy(&buf[..n]).into_owned()
+        });
+
+        LOCAL.notify(4242);
+
+        let request = server.join().unwrap();
+        assert!(
+            request.starts_with("GET /api/match/4242/populate"),
+            "unexpected request: {request}"
+        );
+    }
+}

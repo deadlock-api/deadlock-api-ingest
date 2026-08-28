@@ -10,3 +10,20 @@ fn url(match_id: u64, user: Option<u32>) -> String {
 }
 
 pub(crate) static TARGET: Target = Target::new("Statlocker", url);
+
+#[cfg(test)]
+mod tests {
+    use super::url;
+
+    #[test]
+    fn url_carries_the_match_and_the_submitter() {
+        assert_eq!(
+            url(101, Some(7)),
+            "https://statlocker.gg/api/match/101/populate?username=ingest-tool:7"
+        );
+        assert_eq!(
+            url(101, None),
+            "https://statlocker.gg/api/match/101/populate"
+        );
+    }
+}
