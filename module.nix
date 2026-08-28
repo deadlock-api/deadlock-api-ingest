@@ -36,12 +36,6 @@ in {
       description = "Group under which deadlock-api-ingest runs";
     };
 
-    statlocker.enable = mkOption {
-      type = types.bool;
-      default = true;
-      description = "Whether to enable Statlocker integration (sends match IDs to statlocker.gg after ingestion)";
-    };
-
     steamUser = mkOption {
       type = types.nullOr types.str;
       default = cfg.user;
@@ -84,7 +78,7 @@ in {
         Type = "simple";
         User = cfg.user;
         Group = cfg.group;
-        ExecStart = "${cfg.package}/bin/deadlock-api-ingest${lib.optionalString (!cfg.statlocker.enable) " --no-statlocker"}";
+        ExecStart = "${cfg.package}/bin/deadlock-api-ingest";
         Restart = "on-failure";
         RestartSec = "10s";
 

@@ -22,10 +22,6 @@ use tracing_subscriber::util::SubscriberInitExt;
 #[derive(Parser)]
 #[command(version)]
 struct Args {
-    /// Disable statlocker integration
-    #[arg(long)]
-    no_statlocker: bool,
-
     /// Ingest once and exit (no file watching)
     #[arg(long)]
     once: bool,
@@ -41,7 +37,6 @@ struct Args {
 mod error;
 mod ingestion_cache;
 mod scan_cache;
-mod statlocker;
 mod steam_user;
 mod utils;
 
@@ -107,10 +102,6 @@ fn main() {
 
     if let Some(log_dir) = get_log_dir() {
         info!("Log files are being written to: {}", log_dir.display());
-    }
-
-    if args.no_statlocker {
-        statlocker::disable();
     }
 
     let Ok(steam_dir) = steamlocate::SteamDir::locate() else {
