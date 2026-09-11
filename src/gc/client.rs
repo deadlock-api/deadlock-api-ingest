@@ -16,8 +16,10 @@ use steam_vent::{
 };
 use tracing::warn;
 use valveprotos::deadlock::{
+    CMsgClientToGcGetMatchHistory, CMsgClientToGcGetMatchHistoryResponse,
     CMsgClientToGcGetMatchMetaData, CMsgClientToGcGetMatchMetaDataResponse,
-    EgcCitadelClientMessages, c_msg_client_to_gc_get_match_meta_data_response::EResult,
+    EgcCitadelClientMessages, c_msg_client_to_gc_get_match_history_response,
+    c_msg_client_to_gc_get_match_meta_data_response::EResult,
 };
 
 use super::auth::AuthContext;
@@ -82,7 +84,9 @@ impl GcSession {
         .await
         {
             Ok(Ok(raw)) => Ok(raw),
-            Ok(Err(e)) => Err(GcError::GcUnavailable(format!("{label} request failed: {e}"))),
+            Ok(Err(e)) => Err(GcError::GcUnavailable(format!(
+                "{label} request failed: {e}"
+            ))),
             Err(_) => Err(GcError::GcUnavailable(format!(
                 "{label} request timed out after {GC_CALL_TIMEOUT:?}"
             ))),
@@ -103,7 +107,9 @@ impl GcSession {
             .map_err(|e| GcError::GcUnavailable(format!("bad salts response: {e}")))?;
 
         match resp.result {
-            Some(r) if r == EResult::KEResultRateLimited as i32 => return Err(GcError::GcRateLimited),
+            Some(r) if r == EResult::KEResultRateLimited as i32 => {
+                return Err(GcError::GcRateLimited);
+            }
             Some(r) if r != EResult::KEResultSuccess as i32 => {
                 return Err(GcError::GcUnavailable(format!("salts result {r}")));
             }
@@ -120,5 +126,61 @@ impl GcSession {
             metadata_salt: resp.metadata_salt,
             replay_salt: resp.replay_salt,
         })
+    }
+
+    /// Every match id in `account_id`'s history, following `continue_cursor` pages. If
+    /// Steam rate-limits mid-way, the pages fetched so far are returned.
+    pub(crate) async fn fetch_match_history(&self, account_id: u32) -> Result<Vec<u64>, GcError> {
+        use c_msg_client_to_gc_get_match_history_response::EResult as HistoryResult;
+
+        let kind = MsgKind(EgcCitadelClientMessages::KEMsgClientToGcGetMatchHistory as i32);
+        let mut match_ids = Vec::new();
+        let mut cursor: Option<u64> = None;
+        loop {
+            let req = CMsgClientToGcGetMatchHistory {
+                account_id: Some(account_id),
+                continue_cursor: cursor,
+                ..Default::default()
+            };
+            let raw = self
+                .send_job(req.encode_to_vec(), kind, "match history")
+                .await?;
+            let resp = CMsgClientToGcGetMatchHistoryResponse::decode(raw.data.as_ref())
+                .map_err(|e| GcError::GcUnavailable(format!("bad match history response: {e}")))?;
+
+            match resp.result {
+                Some(r) if r == HistoryResult::KEResultRateLimited as i32 => {
+                    if match_ids.is_empty() {
+                        return Err(GcError::GcRateLimited);
+                    }
+                    warn!(
+                        "gc: match history rate-limited, continuing with {} match(es)",
+                        match_ids.len()
+                    );
+                    break;
+                }
+                Some(r) if r == HistoryResult::KEResultSuccess as i32 => {}
+                r => {
+                    return Err(GcError::GcUnavailable(format!(
+                        "match history result {r:?}"
+                    )));
+                }
+            }
+
+            if resp.matches.is_empty() {
+                break;
+            }
+            match_ids.extend(resp.matches.iter().filter_map(|m| m.match_id));
+
+            // The cursor walks backwards in time; a missing, zero or non-decreasing cursor
+            // means there are no older pages.
+            match resp.continue_cursor {
+                Some(next) if next != 0 && cursor.is_none_or(|prev| next < prev) => {
+                    cursor = Some(next);
+                }
+                _ => break,
+            }
+        }
+        Ok(match_ids)
     }
 }
