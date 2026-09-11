@@ -181,39 +181,11 @@ fn decrypt_blob(blob: &[u8], account: &str) -> Result<String, GcError> {
 
 #[cfg(windows)]
 fn decrypt_blob(blob: &[u8], account: &str) -> Result<String, GcError> {
-    use windows::Win32::Foundation::{HLOCAL, LocalFree};
-    use windows::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CryptUnprotectData};
-
     // DPAPI with the ASCII account name as the mandatory optional entropy.
-    let mut data_in = CRYPT_INTEGER_BLOB {
-        cbData: blob.len() as u32,
-        pbData: blob.as_ptr() as *mut u8,
-    };
-    let entropy_bytes = account.as_bytes();
-    let mut entropy = CRYPT_INTEGER_BLOB {
-        cbData: entropy_bytes.len() as u32,
-        pbData: entropy_bytes.as_ptr() as *mut u8,
-    };
-    let mut data_out = CRYPT_INTEGER_BLOB::default();
-
-    unsafe {
-        CryptUnprotectData(
-            &mut data_in,
-            None,
-            Some(&mut entropy),
-            None,
-            None,
-            0,
-            &mut data_out,
-        )
-        .map_err(|e| err(format!("DPAPI decrypt failed: {e}")))?;
-
-        let slice = std::slice::from_raw_parts(data_out.pbData, data_out.cbData as usize);
-        let token = String::from_utf8(slice.to_vec())
-            .map_err(|e| err(format!("token is not valid UTF-8: {e}")));
-        let _ = LocalFree(HLOCAL(data_out.pbData as *mut core::ffi::c_void));
-        token
-    }
+    let plaintext =
+        windows_dpapi::decrypt_data(blob, windows_dpapi::Scope::User, Some(account.as_bytes()))
+            .map_err(|e| err(format!("DPAPI decrypt failed: {e}")))?;
+    String::from_utf8(plaintext).map_err(|e| err(format!("token is not valid UTF-8: {e}")))
 }
 
 fn steam_id_from_jwt(jwt: &str) -> Result<u64, GcError> {
