@@ -1,11 +1,13 @@
-//! The two deadlock-api calls this subsystem makes: read the global to-fetch list and
-//! POST recovered salts to the same route the httpcache scraper uses. Blocking `ureq`,
-//! matching the rest of the crate; called from `spawn_blocking` inside the async pass.
+//! The deadlock-api calls this subsystem makes: read the global to-fetch list, check which
+//! matches are already known, and POST recovered salts to the same route the httpcache
+//! scraper uses. Blocking `ureq`, matching the rest of the crate; called from
+//! `spawn_blocking` inside the async pass.
 
 use core::time::Duration;
+use std::collections::HashSet;
 use std::sync::OnceLock;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use super::client::MatchSalts;
@@ -13,6 +15,8 @@ use super::error::GcError;
 
 const TO_FETCH_URL: &str = "https://api.deadlock-api.com/v1/matches/to-fetch";
 const SALTS_URL: &str = "https://api.deadlock-api.com/v1/matches/salts";
+const METADATA_URL: &str = "https://api.deadlock-api.com/v1/matches/metadata";
+const METADATA_CHUNK: usize = 100;
 const POST_MAX_RETRIES: u32 = 5;
 const POST_RETRY_DELAY: Duration = Duration::from_secs(3);
 
@@ -35,7 +39,10 @@ struct SaltPayload {
     cluster_id: Option<u32>,
     metadata_salt: Option<u32>,
     replay_salt: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "serialize_username")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_username"
+    )]
     username: Option<u32>,
 }
 
@@ -62,6 +69,35 @@ pub(crate) fn to_fetch() -> Result<Vec<u64>, GcError> {
         .map_err(|e| GcError::Api(format!("invalid to-fetch response: {e}")))
 }
 
+#[derive(Deserialize)]
+struct MatchIdRow {
+    match_id: u64,
+}
+
+/// The subset of `match_ids` deadlock-api already has metadata for (and therefore salts).
+pub(crate) fn known_match_ids(match_ids: &[u64]) -> Result<HashSet<u64>, GcError> {
+    let mut known = HashSet::new();
+    for chunk in match_ids.chunks(METADATA_CHUNK) {
+        let ids = chunk
+            .iter()
+            .map(u64::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let rows: Vec<MatchIdRow> = client()
+            .get(METADATA_URL)
+            .query("match_ids", &ids)
+            .query("include_info", "true")
+            .query("limit", METADATA_CHUNK.to_string())
+            .call()
+            .map_err(|e| GcError::Api(format!("metadata request failed: {e}")))?
+            .body_mut()
+            .read_json()
+            .map_err(|e| GcError::Api(format!("invalid metadata response: {e}")))?;
+        known.extend(rows.into_iter().map(|r| r.match_id));
+    }
+    Ok(known)
+}
+
 /// POST a single match's salts, retrying transient failures. A 400 means the payload
 /// itself is wrong, so it returns immediately without retrying.
 pub(crate) fn post_salts(salts: &MatchSalts, username: Option<u32>) -> Result<(), GcError> {
@@ -76,7 +112,10 @@ pub(crate) fn post_salts(salts: &MatchSalts, username: Option<u32>) -> Result<()
     let mut attempt = 0;
     loop {
         attempt += 1;
-        debug!("gc: posting salts for match {} (attempt {attempt}/{POST_MAX_RETRIES})", salts.match_id);
+        debug!(
+            "gc: posting salts for match {} (attempt {attempt}/{POST_MAX_RETRIES})",
+            salts.match_id
+        );
         match client().post(SALTS_URL).send_json(&payload) {
             Ok(r) if r.status().is_success() => return Ok(()),
             Ok(r) => {

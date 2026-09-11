@@ -30,6 +30,10 @@ struct Args {
     #[arg(long)]
     once: bool,
 
+    /// Recover salts for your own match history via the Steam Game Coordinator, then exit
+    #[arg(long)]
+    own_matches: bool,
+
     /// Game command to wrap (launch wrapper mode).
     /// When provided, the watcher runs in the background while the game
     /// runs as a child process, and exits when the game exits.
@@ -107,6 +111,11 @@ fn main() {
 
     if let Some(log_dir) = get_log_dir() {
         info!("Log files are being written to: {}", log_dir.display());
+    }
+
+    if args.own_matches {
+        gc::run_own_matches_blocking();
+        return;
     }
 
     let Ok(steam_dir) = steamlocate::SteamDir::locate() else {

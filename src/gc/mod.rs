@@ -58,7 +58,10 @@ fn game_running(sys: &mut sysinfo::System) -> bool {
 }
 
 fn fresh_newest_first(ids: Vec<u64>, processed: &HashSet<u64>, take: usize) -> Vec<u64> {
-    let mut ids: Vec<u64> = ids.into_iter().filter(|id| !processed.contains(id)).collect();
+    let mut ids: Vec<u64> = ids
+        .into_iter()
+        .filter(|id| !processed.contains(id))
+        .collect();
     ids.sort_unstable_by(|a, b| b.cmp(a));
     ids.dedup();
     ids.truncate(take);
@@ -140,7 +143,10 @@ async fn run_account(
 ) -> Result<(), GcError> {
     let now = now_secs();
 
-    if store.load_backoff(ctx.steam_id64).is_some_and(|until| now < until) {
+    if store
+        .load_backoff(ctx.steam_id64)
+        .is_some_and(|until| now < until)
+    {
         info!("gc: skipping {}, GC backed off", ctx.account_name);
         return Ok(());
     }
@@ -180,7 +186,10 @@ async fn run_account(
 
     for match_id in picks {
         if game_running(sys) {
-            info!("gc: Deadlock launched mid-pass, stopping {}", ctx.account_name);
+            info!(
+                "gc: Deadlock launched mid-pass, stopping {}",
+                ctx.account_name
+            );
             break;
         }
         throttle(last_request, GC_MIN_INTERVAL).await;
@@ -190,14 +199,20 @@ async fn run_account(
             // Steam itself is throttling this account: treat the 24h bucket as spent so we
             // stop hammering it. Don't mark the id processed — another account may fetch it.
             Err(GcError::GcRateLimited) => {
-                warn!("gc: {} rate-limited by Steam GC; quota exhausted for 24h", ctx.account_name);
+                warn!(
+                    "gc: {} rate-limited by Steam GC; quota exhausted for 24h",
+                    ctx.account_name
+                );
                 quota.exhaust(now);
                 let _ = store.save_quota(ctx.steam_id64, &quota);
                 break;
             }
             // Any other failure fetched nothing; skip the id so it isn't retried this pass.
             Err(e) => {
-                warn!("gc: {} salt fetch failed for {match_id}: {e}", ctx.account_name);
+                warn!(
+                    "gc: {} salt fetch failed for {match_id}: {e}",
+                    ctx.account_name
+                );
                 processed.insert(match_id);
                 continue;
             }
@@ -210,7 +225,10 @@ async fn run_account(
 
         match tokio::task::spawn_blocking(move || api::post_salts(&salts, username)).await {
             Ok(Ok(())) => fetched += 1,
-            Ok(Err(e)) => warn!("gc: {} salt POST failed for {match_id}: {e}", ctx.account_name),
+            Ok(Err(e)) => warn!(
+                "gc: {} salt POST failed for {match_id}: {e}",
+                ctx.account_name
+            ),
             Err(e) => warn!("gc: {} salt POST task panicked: {e}", ctx.account_name),
         }
 
@@ -223,14 +241,123 @@ async fn run_account(
     Ok(())
 }
 
+/// One-shot: recover salts for every match in each remembered account's own match history
+/// that deadlock-api doesn't know yet. Ignores the 40/24h quota and runs until done or
+/// until Steam rate-limits the account.
+pub(crate) fn run_own_matches_blocking() {
+    let mut sys = sysinfo::System::new();
+    if game_running(&mut sys) {
+        warn!("Deadlock is running, close it and run this again");
+        return;
+    }
+    let contexts = match auth::recover_all() {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("gc: no usable Steam account (is Steam logged in with 'remember me'?): {e}");
+            return;
+        }
+    };
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            warn!("gc: cannot build async runtime: {e}");
+            return;
+        }
+    };
+
+    let mut done = HashSet::new();
+    let mut last_request = None;
+    let mut rate_limited = false;
+    for ctx in &contexts {
+        match runtime.block_on(run_own_account(ctx, &mut done, &mut last_request, &mut sys)) {
+            Ok(()) => {}
+            Err(GcError::GcRateLimited) => {
+                warn!("gc: {} was rate-limited by Steam", ctx.account_name);
+                rate_limited = true;
+            }
+            Err(e) => warn!("gc: {} failed: {e}", ctx.account_name),
+        }
+    }
+    if rate_limited {
+        warn!(
+            "Steam rate limit reached. Run this again on another day to fetch the remaining matches."
+        );
+    } else {
+        info!("Done, all own matches processed.");
+    }
+}
+
+async fn run_own_account(
+    ctx: &AuthContext,
+    done: &mut HashSet<u64>,
+    last_request: &mut Option<Instant>,
+    sys: &mut sysinfo::System,
+) -> Result<(), GcError> {
+    let session = GcSession::connect(ctx).await?;
+    let history = session.fetch_match_history(ctx.account_id()).await?;
+    let known = {
+        let ids = history.clone();
+        tokio::task::spawn_blocking(move || api::known_match_ids(&ids))
+            .await
+            .map_err(|e| GcError::Api(format!("metadata task panicked: {e}")))??
+    };
+    let missing: Vec<u64> = history
+        .iter()
+        .copied()
+        .filter(|id| !known.contains(id) && !done.contains(id))
+        .collect();
+    info!(
+        "gc: {} has {} match(es) in history, {} missing salts (~2 min each)",
+        ctx.account_name,
+        history.len(),
+        missing.len()
+    );
+
+    let username = Some(ctx.account_id());
+    for (i, &match_id) in missing.iter().enumerate() {
+        if game_running(sys) {
+            return Err(GcError::GcUnavailable(
+                "Deadlock was launched, stopping".into(),
+            ));
+        }
+        throttle(last_request, GC_MIN_INTERVAL).await;
+
+        let salts = match session.fetch_match_salts(match_id).await {
+            Ok(s) => s,
+            Err(GcError::GcRateLimited) => return Err(GcError::GcRateLimited),
+            Err(e) => {
+                warn!("gc: salt fetch failed for {match_id}: {e}");
+                continue;
+            }
+        };
+        done.insert(match_id);
+        match tokio::task::spawn_blocking(move || api::post_salts(&salts, username)).await {
+            Ok(Ok(())) => info!(
+                "gc: ingested match {match_id} ({}/{})",
+                i + 1,
+                missing.len()
+            ),
+            Ok(Err(e)) => warn!("gc: salt POST failed for {match_id}: {e}"),
+            Err(e) => warn!("gc: salt POST task panicked: {e}"),
+        }
+    }
+    Ok(())
+}
+
 /// Spawn the recurring background GC worker on a dedicated thread. Runs one pass now,
 /// then every [`BACKGROUND_PASS_INTERVAL`]. Used by the long-running watcher mode.
 pub(crate) fn spawn_background() {
     let spawned = std::thread::Builder::new()
         .name("gc-sync".into())
-        .spawn(|| loop {
-            run_pass_blocking();
-            std::thread::sleep(BACKGROUND_PASS_INTERVAL);
+        .spawn(|| {
+            loop {
+                run_pass_blocking();
+                std::thread::sleep(BACKGROUND_PASS_INTERVAL);
+            }
         });
     if let Err(e) = spawned {
         warn!("gc: failed to spawn background worker: {e}");
