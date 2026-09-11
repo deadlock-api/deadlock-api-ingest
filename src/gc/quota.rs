@@ -48,9 +48,7 @@ impl QuotaWindow {
 
     /// For when Steam itself rate-limits us: treat the window as fully used from `now`.
     pub(crate) fn exhaust(&mut self, now: i64) {
-        self.prune(now);
-        let needed = self.limit.saturating_sub(self.hits.len());
-        self.hits.extend(core::iter::repeat_n(now, needed));
+        self.hits = vec![now; self.limit];
     }
 }
 
@@ -98,6 +96,17 @@ mod tests {
         assert_eq!(q.remaining(now), 0);
         assert_eq!(q.snapshot().len(), LIMIT);
         assert_eq!(q.remaining(now + WINDOW - 1), 0);
+        assert_eq!(q.remaining(now + WINDOW + 1), LIMIT);
+    }
+
+    #[test]
+    fn exhaust_ignores_older_hits_about_to_expire() {
+        let mut q = window();
+        let start = 1_000_000;
+        q.try_consume(start);
+        let now = start + WINDOW - 10;
+        q.exhaust(now);
+        assert_eq!(q.remaining(start + WINDOW + 1), 0);
         assert_eq!(q.remaining(now + WINDOW + 1), LIMIT);
     }
 }

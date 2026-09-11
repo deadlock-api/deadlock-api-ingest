@@ -112,9 +112,13 @@ impl GcSession {
         })
     }
 
-    /// Every match id in `account_id`'s history, following `continue_cursor` pages. If
-    /// Steam rate-limits mid-way, the pages fetched so far are returned.
-    pub(crate) async fn fetch_match_history(&self, account_id: u32) -> Result<Vec<u64>, GcError> {
+    /// Every match id in `account_id`'s history, following `continue_cursor` pages, and
+    /// whether the history is complete: if Steam rate-limits mid-way, the pages fetched so
+    /// far are returned with `false`.
+    pub(crate) async fn fetch_match_history(
+        &self,
+        account_id: u32,
+    ) -> Result<(Vec<u64>, bool), GcError> {
         use c_msg_client_to_gc_get_match_history_response::EResult as HistoryResult;
 
         let kind = MsgKind(EgcCitadelClientMessages::KEMsgClientToGcGetMatchHistory as i32);
@@ -141,7 +145,7 @@ impl GcSession {
                         "gc: match history rate-limited, continuing with {} match(es)",
                         match_ids.len()
                     );
-                    break;
+                    return Ok((match_ids, false));
                 }
                 Some(r) if r == HistoryResult::KEResultSuccess as i32 => {}
                 r => {
@@ -165,6 +169,6 @@ impl GcSession {
                 _ => break,
             }
         }
-        Ok(match_ids)
+        Ok((match_ids, true))
     }
 }
