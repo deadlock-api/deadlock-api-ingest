@@ -197,11 +197,11 @@ async fn run_account(
 
     let mut fetched = 0u32;
     for match_id in picks {
+        throttle(last_request, GC_MIN_INTERVAL).await;
         if game_running(sys) {
             info!("gc: Deadlock launched mid-pass, stopping account {account}");
             break;
         }
-        throttle(last_request, GC_MIN_INTERVAL).await;
 
         let salts = match session.fetch_match_salts(match_id).await {
             Ok(s) => s,
@@ -286,7 +286,8 @@ pub(crate) fn run_own_matches_blocking() -> bool {
     !rate_limited && failed == 0
 }
 
-/// Returns how many missing matches could not be recovered and ingested.
+/// Returns how many missing matches could not be recovered and ingested, or
+/// `GcRateLimited` if Steam rate-limited the account (after processing what it could).
 async fn run_own_account(
     ctx: &AuthContext,
     done: &mut HashSet<u64>,
@@ -295,7 +296,7 @@ async fn run_own_account(
 ) -> Result<usize, GcError> {
     let account = ctx.account_id();
     let session = GcSession::connect(ctx).await?;
-    let history = session.fetch_match_history(account).await?;
+    let (history, history_complete) = session.fetch_match_history(account).await?;
     let known = {
         let ids = history.clone();
         tokio::task::spawn_blocking(move || api::known_match_ids(&ids))
@@ -315,10 +316,10 @@ async fn run_own_account(
 
     let mut failed = 0;
     for (i, &match_id) in missing.iter().enumerate() {
+        throttle(last_request, GC_MIN_INTERVAL).await;
         if game_running(sys) {
             return Err(GcError::GcUnavailable("Deadlock was launched".into()));
         }
-        throttle(last_request, GC_MIN_INTERVAL).await;
 
         let salts = match session.fetch_match_salts(match_id).await {
             Ok(s) => s,
@@ -339,6 +340,10 @@ async fn run_own_account(
         } else {
             failed += 1;
         }
+    }
+    // Older pages were cut off by Steam's rate limit, so they still need another run.
+    if !history_complete {
+        return Err(GcError::GcRateLimited);
     }
     Ok(failed)
 }
