@@ -11,7 +11,7 @@ static HTTP_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct Salts {
     pub(super) match_id: u64,
-    pub(super) cluster_id: u32,
+    pub(super) cluster_id: Option<u32>,
     pub(super) metadata_salt: Option<u32>,
     pub(super) replay_salt: Option<u32>,
     #[serde(
@@ -48,7 +48,7 @@ impl Salts {
             let (match_str, salt_str) = name.split_once('_')?;
 
             Some(Self {
-                cluster_id: cluster_str.parse().ok()?,
+                cluster_id: Some(cluster_str.parse().ok()?),
                 match_id: match_str.parse().ok()?,
                 metadata_salt: salt_str.parse().ok(),
                 replay_salt: None,
@@ -59,7 +59,7 @@ impl Salts {
             let (match_str, salt_str) = name.split_once('_')?;
 
             Some(Self {
-                cluster_id: cluster_str.parse().ok()?,
+                cluster_id: Some(cluster_str.parse().ok()?),
                 match_id: match_str.parse().ok()?,
                 replay_salt: salt_str.parse().ok(),
                 metadata_salt: None,
@@ -184,7 +184,7 @@ mod tests {
 
         for &(url, cluster_id, match_id, metadata_salt, replay_salt) in cases {
             let salts = Salts::from_url(url).unwrap();
-            assert_eq!(salts.cluster_id, cluster_id);
+            assert_eq!(salts.cluster_id, Some(cluster_id));
             assert_eq!(salts.match_id, match_id);
             assert_eq!(salts.metadata_salt, metadata_salt);
             assert_eq!(salts.replay_salt, replay_salt);

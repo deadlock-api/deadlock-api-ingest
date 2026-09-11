@@ -138,7 +138,7 @@ mod tests {
         // Mark metadata as ingested
         mark_ingested(&Salts {
             match_id,
-            cluster_id: 0,
+            cluster_id: None,
             metadata_salt: Some(0),
             replay_salt: None,
             username: None,
@@ -149,7 +149,7 @@ mod tests {
         // Mark replay as ingested
         mark_ingested(&Salts {
             match_id,
-            cluster_id: 0,
+            cluster_id: None,
             metadata_salt: None,
             replay_salt: Some(0),
             username: None,

@@ -5,7 +5,6 @@
 pub(crate) const FETCH_QUOTA_LIMIT: usize = 40;
 pub(crate) const FETCH_QUOTA_WINDOW_SECS: i64 = 24 * 60 * 60;
 
-#[derive(Debug, Clone)]
 pub(crate) struct QuotaWindow {
     hits: Vec<i64>,
     limit: usize,
