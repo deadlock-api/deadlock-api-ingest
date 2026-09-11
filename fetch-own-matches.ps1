@@ -6,8 +6,11 @@ $ProgressPreference = 'SilentlyContinue'
 
 $bin = Join-Path $env:TEMP 'deadlock-api-ingest-own-matches.exe'
 Invoke-WebRequest -UseBasicParsing -OutFile $bin -Uri 'https://github.com/deadlock-api/deadlock-api-ingest/releases/latest/download/deadlock-api-ingest-windows-latest.exe'
+$prevRustLog = $env:RUST_LOG
+$env:RUST_LOG = 'info'
 try {
     & $bin --own-matches
 } finally {
+    $env:RUST_LOG = $prevRustLog
     Remove-Item $bin -ErrorAction SilentlyContinue
 }
