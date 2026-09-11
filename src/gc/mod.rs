@@ -33,9 +33,9 @@ use store::{GcStore, now_secs};
 
 use crate::utils::Salts;
 
-// GetMatchMetaData is rate-limited per-account by Steam's GC; a fast cadence reliably
-// trips that limit, so requests are spaced two minutes apart.
-const GC_MIN_INTERVAL: Duration = Duration::from_mins(2);
+// GetMatchMetaData is rate-limited per-account by Steam's GC. A faster cadence trips
+// that limit sooner; when it does, the account's run stops (see `GcRateLimited`).
+const GC_MIN_INTERVAL: Duration = Duration::from_secs(20);
 // Between background passes. Most passes no-op quickly once the 24h quota is spent.
 const BACKGROUND_PASS_INTERVAL: Duration = Duration::from_mins(30);
 // An account whose GC handshake failed (e.g. doesn't own the game) fails identically
@@ -309,7 +309,7 @@ async fn run_own_account(
         .filter(|id| !known.contains(id) && !done.contains(id))
         .collect();
     info!(
-        "gc: account {account} has {} match(es) in history, {} missing salts (~2 min each)",
+        "gc: account {account} has {} match(es) in history, {} missing salts (~20s each)",
         history.len(),
         missing.len()
     );
