@@ -1,6 +1,6 @@
 FROM rust:1.98-slim-trixie AS chef
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends sccache ca-certificates gcc libssl-dev pkg-config cmake build-essential clang protobuf-compiler
+    && apt-get install -y --no-install-recommends sccache ca-certificates gcc libssl-dev pkg-config cmake build-essential clang protobuf-compiler libprotobuf-dev
 RUN cargo install --locked cargo-chef
 ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache
 WORKDIR /app
