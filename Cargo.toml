@@ -24,7 +24,7 @@ sysinfo = { version = "0.39.1", default-features = false, features = ["system"] 
 # Steam Game Coordinator match-salt recovery (see src/gc/).
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 prost = "0.14"
-steam-vent = { git = "https://github.com/deadlock-api/steam-vent", rev = "dddddc81969ac210e39a78870d0e8fd23bfbb055" }
+steam-vent = { git = "https://github.com/deadlock-api/steam-vent", rev = "098ae675ab698d642e93c4c650cab79f3fc7d130" }
 valveprotos = { git = "https://github.com/deadlock-api/valveprotos-rs", rev = "b14c831f324e20653e50ff60372478d427800d45", features = [
     "gc-common",
     "gc-client",
