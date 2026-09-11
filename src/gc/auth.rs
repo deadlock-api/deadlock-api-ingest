@@ -61,8 +61,8 @@ fn local_vdf_path(steam_dir: &Path) -> Result<PathBuf, GcError> {
 
 fn all_account_ids(steam_dir: &Path) -> Result<Vec<(u64, String)>, GcError> {
     let path = steam_dir.join("config").join("loginusers.vdf");
-    let text =
-        std::fs::read_to_string(&path).map_err(|e| err(format!("cannot read loginusers.vdf: {e}")))?;
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| err(format!("cannot read loginusers.vdf: {e}")))?;
     let vdf = keyvalues_parser::parse(&text)
         .map(Vdf::from)
         .map_err(|e| err(format!("cannot parse loginusers.vdf: {e}")))?;
@@ -148,8 +148,8 @@ fn connect_cache_hex(vdf: &Vdf, account: &str) -> Result<Option<String>, GcError
 }
 
 fn connect_cache_blob(vdf: &Vdf, account: &str) -> Result<Vec<u8>, GcError> {
-    let hex_value =
-        connect_cache_hex(vdf, account)?.ok_or_else(|| err("no ConnectCache entry for this account"))?;
+    let hex_value = connect_cache_hex(vdf, account)?
+        .ok_or_else(|| err("no ConnectCache entry for this account"))?;
     hex::decode(hex_value).map_err(|e| err(format!("invalid ConnectCache hex: {e}")))
 }
 
@@ -157,9 +157,7 @@ fn connect_cache_blob(vdf: &Vdf, account: &str) -> Result<Vec<u8>, GcError> {
 fn decrypt_blob(blob: &[u8], account: &str) -> Result<String, GcError> {
     use aes::Aes256;
     use aes::cipher::generic_array::GenericArray;
-    use aes::cipher::{
-        BlockDecrypt, BlockDecryptMut, KeyInit, KeyIvInit, block_padding::Pkcs7,
-    };
+    use aes::cipher::{BlockDecrypt, BlockDecryptMut, KeyInit, KeyIvInit, block_padding::Pkcs7};
     use sha2::{Digest, Sha256};
 
     if blob.len() < 32 {
@@ -219,12 +217,15 @@ fn decrypt_blob(blob: &[u8], account: &str) -> Result<String, GcError> {
 }
 
 fn steam_id_from_jwt(jwt: &str) -> Result<u64, GcError> {
-    let payload = jwt.split('.').nth(1).ok_or_else(|| err("token is not a JWT"))?;
+    let payload = jwt
+        .split('.')
+        .nth(1)
+        .ok_or_else(|| err("token is not a JWT"))?;
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(payload)
         .map_err(|e| err(format!("cannot decode token payload: {e}")))?;
-    let json: serde_json::Value =
-        serde_json::from_slice(&bytes).map_err(|e| err(format!("cannot parse token payload: {e}")))?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|e| err(format!("cannot parse token payload: {e}")))?;
 
     if json.get("iss").and_then(serde_json::Value::as_str) != Some("steam") {
         return Err(err("token issuer is not steam"));

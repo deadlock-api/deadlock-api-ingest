@@ -1,0 +1,9 @@
+[advisories]
+ignore = [
+    # rsa Marvin timing attack; no patched release exists. Only reached via steam-vent,
+    # which uses RsaPublicKey (encrypt/verify) and never holds a private key.
+    "RUSTSEC-2023-0071",
+    # protobuf recursion DoS on untrusted input. Pinned to =3.5.1 by steam-vent-proto's
+    # generated code; only parses Steam CM traffic over TLS.
+    "RUSTSEC-2024-0437",
+]
