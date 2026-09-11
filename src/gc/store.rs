@@ -90,7 +90,10 @@ impl GcStore {
     pub(crate) fn save_quota(&self, steam_id64: u64, quota: &QuotaWindow) -> Result<(), GcError> {
         let _guard = self.lock.lock().unwrap_or_else(PoisonError::into_inner);
         let mut data = self.load();
-        data.accounts.entry(steam_id64.to_string()).or_default().quota_hits = quota.snapshot();
+        data.accounts
+            .entry(steam_id64.to_string())
+            .or_default()
+            .quota_hits = quota.snapshot();
         self.save(&data)
     }
 

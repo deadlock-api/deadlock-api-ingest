@@ -2,6 +2,7 @@
   lib,
   naersk-lib,
   pkg-config,
+  protobuf,
   openssl,
   stdenv,
   darwin,
@@ -19,6 +20,7 @@ naersk-lib.buildPackage {
 
   nativeBuildInputs = [
     pkg-config
+    protobuf
   ];
 
   buildInputs = [
