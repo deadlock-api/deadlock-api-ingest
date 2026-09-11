@@ -521,7 +521,7 @@ checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 
 [[package]]
 name = "deadlock-api-ingest"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "aes",
  "base64 0.22.1",
