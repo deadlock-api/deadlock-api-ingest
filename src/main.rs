@@ -31,7 +31,7 @@ struct Args {
     once: bool,
 
     /// Recover salts for your own match history via the Steam Game Coordinator, then exit
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["once", "no_gc", "command"])]
     own_matches: bool,
 
     /// Game command to wrap (launch wrapper mode).
@@ -114,8 +114,7 @@ fn main() {
     }
 
     if args.own_matches {
-        gc::run_own_matches_blocking();
-        return;
+        std::process::exit(i32::from(!gc::run_own_matches_blocking()));
     }
 
     let Ok(steam_dir) = steamlocate::SteamDir::locate() else {

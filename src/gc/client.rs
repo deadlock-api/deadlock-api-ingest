@@ -2,10 +2,6 @@
 //! remembered account (`steam-vent` + `CMsgClientToGcGetMatchMetaData`). One CM+GC
 //! session per pass; poisoned on any failure so the next pass reconnects cleanly.
 
-// steam-vent's CM/GC connection futures are inherently large; boxing them would only
-// add allocations to a background daemon that awaits one at a time.
-#![allow(clippy::large_futures)]
-
 use core::future::Future;
 use core::time::Duration;
 
@@ -24,19 +20,12 @@ use valveprotos::deadlock::{
 
 use super::auth::AuthContext;
 use super::error::GcError;
+use crate::utils::Salts;
 
 const DEADLOCK_APP_ID: u32 = 1422450;
 
 // A stalled discover/login/job call must not hang the pass indefinitely.
 const GC_CALL_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// The salts recovered for a single match (the same fields the httpcache scraper posts).
-pub(crate) struct MatchSalts {
-    pub(crate) match_id: u64,
-    pub(crate) cluster_id: Option<u32>,
-    pub(crate) metadata_salt: Option<u32>,
-    pub(crate) replay_salt: Option<u32>,
-}
 
 async fn with_timeout<T, E: core::fmt::Display>(
     label: &str,
@@ -55,6 +44,7 @@ pub(crate) struct GcSession {
     gc: GameCoordinator,
     // Held only to keep the CM connection alive for the GC session.
     _conn: Connection,
+    account_id: u32,
 }
 
 impl GcSession {
@@ -68,7 +58,11 @@ impl GcSession {
         )
         .await?;
         let gc = with_timeout("GC handshake", GameCoordinator::new(&conn, DEADLOCK_APP_ID)).await?;
-        Ok(Self { gc, _conn: conn })
+        Ok(Self {
+            gc,
+            _conn: conn,
+            account_id: ctx.account_id(),
+        })
     }
 
     async fn send_job(
@@ -77,25 +71,17 @@ impl GcSession {
         kind: MsgKind,
         label: &str,
     ) -> Result<RawNetMessage, GcError> {
-        match tokio::time::timeout(
-            GC_CALL_TIMEOUT,
+        with_timeout(
+            label,
             self.gc.job_untyped(UntypedMessage(req_bytes), kind, true),
         )
         .await
-        {
-            Ok(Ok(raw)) => Ok(raw),
-            Ok(Err(e)) => Err(GcError::GcUnavailable(format!(
-                "{label} request failed: {e}"
-            ))),
-            Err(_) => Err(GcError::GcUnavailable(format!(
-                "{label} request timed out after {GC_CALL_TIMEOUT:?}"
-            ))),
-        }
     }
 
-    /// One `GetMatchMetaData` round-trip. No internal retries: a failed fetch must cost
-    /// at most one quota unit (the caller rate-limits and quota-gates).
-    pub(crate) async fn fetch_match_salts(&self, match_id: u64) -> Result<MatchSalts, GcError> {
+    /// One `GetMatchMetaData` round-trip, tagged with this session's account. No internal
+    /// retries: a failed fetch must cost at most one quota unit (the caller rate-limits
+    /// and quota-gates). A response without any salt is an error, so it is never posted.
+    pub(crate) async fn fetch_match_salts(&self, match_id: u64) -> Result<Salts, GcError> {
         let req = CMsgClientToGcGetMatchMetaData {
             match_id: Some(match_id),
             ..Default::default()
@@ -110,21 +96,19 @@ impl GcSession {
             Some(r) if r == EResult::KEResultRateLimited as i32 => {
                 return Err(GcError::GcRateLimited);
             }
-            Some(r) if r != EResult::KEResultSuccess as i32 => {
-                return Err(GcError::GcUnavailable(format!("salts result {r}")));
-            }
-            _ => {}
+            Some(r) if r == EResult::KEResultSuccess as i32 => {}
+            r => return Err(GcError::GcUnavailable(format!("salts result {r:?}"))),
         }
-
         if resp.metadata_salt.is_none() && resp.replay_salt.is_none() {
-            warn!("gc: match {match_id} returned no salts");
+            return Err(GcError::GcUnavailable("response has no salts".into()));
         }
 
-        Ok(MatchSalts {
+        Ok(Salts {
             match_id,
             cluster_id: resp.replay_group_id,
             metadata_salt: resp.metadata_salt,
             replay_salt: resp.replay_salt,
+            username: Some(self.account_id),
         })
     }
 

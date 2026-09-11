@@ -12,7 +12,6 @@ use super::error::GcError;
 
 /// A recovered Steam session for one account. `refresh_token` is a live credential:
 /// in-memory only, never logged/persisted/sent (custom `Debug` keeps it out of logs).
-#[derive(Clone)]
 pub(crate) struct AuthContext {
     pub(crate) account_name: String,
     pub(crate) steam_id64: u64,
@@ -119,9 +118,9 @@ pub(crate) fn recover_all() -> Result<Vec<AuthContext>, GcError> {
             // The ConnectCache lookup is keyed by account name, not steam_id64 - reject a
             // blob whose token identity doesn't match the loginusers.vdf entry it came from.
             Ok(_) => warn!(
-                "skipping account {account_name}: token identity does not match loginusers.vdf entry"
+                "skipping account {steam_id64}: token identity does not match loginusers.vdf entry"
             ),
-            Err(e) => warn!("skipping account {account_name}: {e}"),
+            Err(e) => warn!("skipping account {steam_id64}: {e}"),
         }
     }
 
@@ -131,7 +130,7 @@ pub(crate) fn recover_all() -> Result<Vec<AuthContext>, GcError> {
     Ok(contexts)
 }
 
-fn connect_cache_hex(vdf: &Vdf, account: &str) -> Result<Option<String>, GcError> {
+fn connect_cache_blob(vdf: &Vdf, account: &str) -> Result<Vec<u8>, GcError> {
     let cache = ["Software", "Valve", "Steam", "ConnectCache"]
         .into_iter()
         .try_fold(&vdf.value, child)
@@ -139,16 +138,11 @@ fn connect_cache_hex(vdf: &Vdf, account: &str) -> Result<Option<String>, GcError
         .ok_or_else(|| err("no ConnectCache in local.vdf (logged out or 'remember me' off)"))?;
 
     let prefix = format!("{:08x}", crc32fast::hash(account.as_bytes()));
-    Ok(cache
+    let hex_value = cache
         .iter()
         .find(|(subkey, _)| subkey.starts_with(&prefix))
         .and_then(|(_, values)| values.first())
         .and_then(Value::get_str)
-        .map(str::to_owned))
-}
-
-fn connect_cache_blob(vdf: &Vdf, account: &str) -> Result<Vec<u8>, GcError> {
-    let hex_value = connect_cache_hex(vdf, account)?
         .ok_or_else(|| err("no ConnectCache entry for this account"))?;
     hex::decode(hex_value).map_err(|e| err(format!("invalid ConnectCache hex: {e}")))
 }

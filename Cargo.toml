@@ -19,10 +19,10 @@ walkdir = "2.5.0"
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-sysinfo = "0.39.1"
+sysinfo = { version = "0.39.1", default-features = false, features = ["system"] }
 
 # Steam Game Coordinator match-salt recovery (see src/gc/).
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 prost = "0.14"
 steam-vent = { git = "https://github.com/deadlock-api/steam-vent", rev = "1d7b274f5c2f648aba5dab474b80c1156b409bca" }
 valveprotos = { git = "https://github.com/deadlock-api/valveprotos-rs", rev = "b14c831f324e20653e50ff60372478d427800d45", features = [
