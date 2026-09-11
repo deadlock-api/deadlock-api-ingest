@@ -141,7 +141,6 @@ mod tests {
             cluster_id: None,
             metadata_salt: Some(0),
             replay_salt: None,
-            username: None,
         });
         assert!(is_ingested(match_id, true));
         assert!(!is_ingested(match_id, false));
@@ -152,7 +151,6 @@ mod tests {
             cluster_id: None,
             metadata_salt: None,
             replay_salt: Some(0),
-            username: None,
         });
         assert!(is_ingested(match_id, true));
         assert!(is_ingested(match_id, false));

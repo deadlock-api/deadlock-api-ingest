@@ -44,7 +44,6 @@ pub(crate) struct GcSession {
     gc: GameCoordinator,
     // Held only to keep the CM connection alive for the GC session.
     _conn: Connection,
-    account_id: u32,
 }
 
 impl GcSession {
@@ -58,11 +57,7 @@ impl GcSession {
         )
         .await?;
         let gc = with_timeout("GC handshake", GameCoordinator::new(&conn, DEADLOCK_APP_ID)).await?;
-        Ok(Self {
-            gc,
-            _conn: conn,
-            account_id: ctx.account_id(),
-        })
+        Ok(Self { gc, _conn: conn })
     }
 
     async fn send_job(
@@ -108,7 +103,6 @@ impl GcSession {
             cluster_id: resp.replay_group_id,
             metadata_salt: resp.metadata_salt,
             replay_salt: resp.replay_salt,
-            username: Some(self.account_id),
         })
     }
 

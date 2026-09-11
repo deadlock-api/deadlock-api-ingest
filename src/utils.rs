@@ -1,6 +1,7 @@
 use crate::error::Error;
 use core::time::Duration;
 use serde::Serialize;
+use serde::ser::SerializeStruct;
 use std::sync::OnceLock;
 use std::thread::sleep;
 use tracing::debug;
@@ -8,27 +9,23 @@ use ureq::Error::StatusCode;
 
 static HTTP_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
 
-#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct Salts {
     pub(super) match_id: u64,
     pub(super) cluster_id: Option<u32>,
     pub(super) metadata_salt: Option<u32>,
     pub(super) replay_salt: Option<u32>,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "serialize_username"
-    )]
-    pub(super) username: Option<u32>,
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref, clippy::ref_option)]
-fn serialize_username<S: serde::Serializer>(
-    value: &Option<u32>,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    match value {
-        Some(id) => serializer.serialize_str(&format!("ingest-tool:{id}")),
-        None => serializer.serialize_none(),
+impl Serialize for Salts {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut s = serializer.serialize_struct("Salts", 5)?;
+        s.serialize_field("match_id", &self.match_id)?;
+        s.serialize_field("cluster_id", &self.cluster_id)?;
+        s.serialize_field("metadata_salt", &self.metadata_salt)?;
+        s.serialize_field("replay_salt", &self.replay_salt)?;
+        s.serialize_field("username", "ingest-tool")?;
+        s.end()
     }
 }
 
@@ -52,7 +49,6 @@ impl Salts {
                 match_id: match_str.parse().ok()?,
                 metadata_salt: salt_str.parse().ok(),
                 replay_salt: None,
-                username: crate::steam_user::current_steam_id3(),
             })
         } else if name.ends_with(".dem.bz2") {
             let name = name.strip_suffix(".dem.bz2")?;
@@ -63,7 +59,6 @@ impl Salts {
                 match_id: match_str.parse().ok()?,
                 replay_salt: salt_str.parse().ok(),
                 metadata_salt: None,
-                username: crate::steam_user::current_steam_id3(),
             })
         } else {
             None
@@ -189,5 +184,25 @@ mod tests {
             assert_eq!(salts.metadata_salt, metadata_salt);
             assert_eq!(salts.replay_salt, replay_salt);
         }
+    }
+
+    #[test]
+    fn test_serialize_salts() {
+        let salts = Salts {
+            match_id: 42476710,
+            cluster_id: Some(183),
+            metadata_salt: None,
+            replay_salt: Some(428480166),
+        };
+        assert_eq!(
+            serde_json::to_value(salts).unwrap(),
+            serde_json::json!({
+                "match_id": 42476710,
+                "cluster_id": 183,
+                "metadata_salt": null,
+                "replay_salt": 428480166,
+                "username": "ingest-tool",
+            })
+        );
     }
 }
