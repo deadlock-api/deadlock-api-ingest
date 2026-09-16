@@ -60,6 +60,34 @@
 
         packages.default = package;
 
+        # Instantiate the NixOS module so nix flake check catches evaluation
+        # errors that only surface when the service is actually enabled.
+        checks = pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          nixos-module =
+            let
+              nixos = nixpkgs.lib.nixosSystem {
+                modules = [
+                  self.nixosModules.default
+                  {
+                    nixpkgs.hostPlatform = system;
+                    services.deadlock-api-ingest = {
+                      enable = true;
+                      user = "steam";
+                    };
+                    boot.loader.grub.enable = false;
+                    fileSystems."/" = {
+                      device = "none";
+                      fsType = "tmpfs";
+                    };
+                    system.stateVersion = "26.05";
+                  }
+                ];
+              };
+            in
+            pkgs.runCommand "check-nixos-module" {
+              execStart = nixos.config.systemd.services.deadlock-api-ingest.serviceConfig.ExecStart;
+            } ''echo "$execStart" > $out'';
+        };
       }
     );
 }
