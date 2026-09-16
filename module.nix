@@ -4,19 +4,13 @@ with lib;
 
 let
   cfg = config.services.deadlock-api-ingest;
-  
-  # Build the package directly in the module
-  defaultPackage = pkgs.callPackage ./default.nix { 
-    src = ./.;
-  };
 in {
   options.services.deadlock-api-ingest = {
     enable = mkEnableOption "Deadlock API Ingest service";
 
     package = mkOption {
       type = types.package;
-      default = defaultPackage;
-      defaultText = literalExpression "pkgs.callPackage ./default.nix { }";
+      defaultText = literalExpression "deadlock-api-ingest.packages.\${system}.default";
       description = "The deadlock-api-ingest package to use";
     };
 
