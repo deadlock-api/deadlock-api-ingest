@@ -26,9 +26,16 @@
       naersk,
     }:
     {
-      # Export the NixOS module
-      nixosModules.default = import ./module.nix;
-      nixosModules.deadlock-api-ingest = import ./module.nix;
+      # Export the NixOS module, defaulting to this flake's package so that
+      # module.nix doesn't have to build it (default.nix needs naersk-lib).
+      nixosModules.default =
+        { pkgs, ... }:
+        {
+          imports = [ ./module.nix ];
+          services.deadlock-api-ingest.package =
+            nixpkgs.lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+        };
+      nixosModules.deadlock-api-ingest = self.nixosModules.default;
     }
     // flake-utils.lib.eachDefaultSystem (
       system:
