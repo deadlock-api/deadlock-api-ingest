@@ -33,6 +33,8 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/deadlock-api/deadlock-
 ```
 
 > **⚠️ Auto-Start Permissions**: If you want the application to start automatically on system boot, you'll need to run PowerShell as Administrator. However, **the application itself runs without admin privileges** - you only need admin rights to create the scheduled task for auto-start. If you run the installer without admin rights, you can still install and run the application manually.
+>
+> The scheduled task runs while you are logged in. It needs your interactive logon to decrypt the saved Steam session (Windows DPAPI) for match-salt recovery via the Steam Game Coordinator.
 
 ### Linux (Bash)
 
@@ -211,7 +213,7 @@ If you prefer to install manually, you can download the appropriate binary from 
 ### Windows Manual Setup
 1. Download `deadlock-api-ingest-windows-latest.exe`
 2. Place it in `%LOCALAPPDATA%\deadlock-api-ingest\`
-3. Create a scheduled task to run on user login (no admin required)
+3. Create a scheduled task to run on user login (no admin required). Use the "Run only when user is logged on" option (interactive logon); "Run whether user is logged on or not" can't decrypt the Steam session, so the Game Coordinator salt recovery won't run
 
 ### Linux Manual Setup
 1. Download `deadlock-api-ingest-ubuntu-latest`

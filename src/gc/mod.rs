@@ -122,7 +122,7 @@ pub(crate) fn run_pass_blocking() {
     let contexts = match auth::recover_all() {
         Ok(c) => c,
         Err(e) => {
-            info!("gc: no usable Steam account, skipping GC pass: {e}");
+            warn!("gc: no usable Steam account, skipping GC pass: {e}");
             return;
         }
     };
@@ -350,10 +350,21 @@ async fn run_own_account(
 
 /// Spawn the recurring background GC worker on a dedicated thread. Runs one pass now,
 /// then every [`BACKGROUND_PASS_INTERVAL`]. Used by the long-running watcher mode.
+/// Report once at startup whether any Steam session is decryptable. Passes skip early
+/// while Deadlock is running, so without this an auth failure (e.g. DPAPI unavailable
+/// because the process has no interactive logon) can stay out of the logs for days.
+fn log_auth_status() {
+    match auth::recover_all() {
+        Ok(contexts) => info!("gc: {} Steam account(s) available", contexts.len()),
+        Err(e) => warn!("gc: no usable Steam account, GC passes will be skipped: {e}"),
+    }
+}
+
 pub(crate) fn spawn_background() {
     let spawned = std::thread::Builder::new()
         .name("gc-sync".into())
         .spawn(|| {
+            log_auth_status();
             loop {
                 run_pass_blocking();
                 std::thread::sleep(BACKGROUND_PASS_INTERVAL);
