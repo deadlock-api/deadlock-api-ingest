@@ -213,7 +213,7 @@ If you prefer to install manually, you can download the appropriate binary from 
 ### Windows Manual Setup
 1. Download `deadlock-api-ingest-windows-latest.exe`
 2. Place it in `%LOCALAPPDATA%\deadlock-api-ingest\`
-3. Create a scheduled task to run on user login (no admin required). Use the "Run only when user is logged on" option (interactive logon); "Run whether user is logged on or not" can't decrypt the Steam session, so the Game Coordinator salt recovery won't run
+3. Create a scheduled task that runs on user login, only while the user is logged on (no admin required)
 
 ### Linux Manual Setup
 1. Download `deadlock-api-ingest-ubuntu-latest`
