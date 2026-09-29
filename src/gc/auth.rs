@@ -39,8 +39,15 @@ fn err(msg: impl Into<String>) -> GcError {
     GcError::AuthUnavailable(msg.into())
 }
 
+// Steam's own VDF reader is case-insensitive, and clients really do mix casings (e.g.
+// `"Software"` > `"valve"` > `"steam"` in local.vdf), so exact-key lookups miss.
 fn child<'a>(value: &'a Value<'a>, key: &str) -> Option<&'a Value<'a>> {
-    value.get_obj()?.get(key)?.first()
+    value
+        .get_obj()?
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))?
+        .1
+        .first()
 }
 
 // The auth file location differs on Windows.
@@ -135,15 +142,27 @@ fn connect_cache_blob(vdf: &Vdf, account: &str) -> Result<Vec<u8>, GcError> {
         .into_iter()
         .try_fold(&vdf.value, child)
         .and_then(Value::get_obj)
-        .ok_or_else(|| err("no ConnectCache in local.vdf (logged out or 'remember me' off)"))?;
+        .ok_or_else(|| {
+            err("local.vdf has no Software/Valve/Steam/ConnectCache section (no remembered Steam login?)")
+        })?;
 
     let prefix = format!("{:08x}", crc32fast::hash(account.as_bytes()));
     let hex_value = cache
         .iter()
-        .find(|(subkey, _)| subkey.starts_with(&prefix))
+        .find(|(subkey, _)| {
+            subkey
+                .get(..prefix.len())
+                .is_some_and(|p| p.eq_ignore_ascii_case(&prefix))
+        })
         .and_then(|(_, values)| values.first())
         .and_then(Value::get_str)
-        .ok_or_else(|| err("no ConnectCache entry for this account"))?;
+        .ok_or_else(|| {
+            err(format!(
+                "no ConnectCache entry for this account among {} in local.vdf \
+                 (logged out or 'remember me' off?)",
+                cache.len()
+            ))
+        })?;
     hex::decode(hex_value).map_err(|e| err(format!("invalid ConnectCache hex: {e}")))
 }
 
@@ -200,4 +219,49 @@ fn steam_id_from_jwt(jwt: &str) -> Result<u64, GcError> {
         .and_then(serde_json::Value::as_str)
         .and_then(|s| s.parse::<u64>().ok())
         .ok_or_else(|| err("token has no SteamID"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(text: &str) -> Vdf<'_> {
+        Vdf::from(keyvalues_parser::parse(text).expect("valid vdf"))
+    }
+
+    fn local_vdf(valve: &str, steam: &str, subkey: &str) -> String {
+        format!(
+            "\"MachineUserConfigStore\" {{ \"Software\" {{ \"{valve}\" {{ \"{steam}\" {{ \
+             \"ConnectCache\" {{ \"{subkey}\" \"0a0b\" }} }} }} }} }}"
+        )
+    }
+
+    fn key_for(account: &str) -> String {
+        format!("{:08x}1", crc32fast::hash(account.as_bytes()))
+    }
+
+    #[test]
+    fn connect_cache_lookup_ignores_key_case() {
+        for (valve, steam) in [("Valve", "Steam"), ("valve", "steam"), ("VALVE", "sTeAm")] {
+            let text = local_vdf(valve, steam, &key_for("someuser"));
+            let blob = connect_cache_blob(&parse(&text), "someuser");
+            assert_eq!(blob.ok(), Some(vec![0x0a, 0x0b]), "{valve}/{steam}");
+        }
+    }
+
+    #[test]
+    fn connect_cache_lookup_ignores_hex_case() {
+        let text = local_vdf("valve", "steam", &key_for("someuser").to_uppercase());
+        assert_eq!(
+            connect_cache_blob(&parse(&text), "someuser").ok(),
+            Some(vec![0x0a, 0x0b])
+        );
+    }
+
+    #[test]
+    fn connect_cache_lookup_misses_other_account() {
+        let text = local_vdf("Valve", "Steam", &key_for("someoneelse"));
+        let e = connect_cache_blob(&parse(&text), "someuser").unwrap_err();
+        assert!(e.to_string().contains("no ConnectCache entry"), "{e}");
+    }
 }
