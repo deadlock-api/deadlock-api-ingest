@@ -10,6 +10,7 @@
 #![deny(clippy::std_instead_of_core)]
 #![allow(clippy::unreadable_literal)]
 
+use std::fs::{File, TryLockError};
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -86,6 +87,29 @@ fn init_tracing() {
         .init();
 }
 
+/// Takes an exclusive lock so only one long-running watcher exists per user. Without it,
+/// every `Start-ScheduledTask` (or a manual launch next to the autostart) adds another
+/// copy, and the copies fight over the GC quota store. Exits if another instance holds it;
+/// returns `None` (and runs unlocked) if the lock file itself can't be set up.
+fn acquire_instance_lock() -> Option<File> {
+    let dir = dirs::data_dir()?.join("deadlock-api-ingest");
+    let lock = std::fs::create_dir_all(&dir)
+        .and_then(|()| File::create(dir.join("instance.lock")))
+        .inspect_err(|e| warn!("Cannot create instance lock, running without it: {e}"))
+        .ok()?;
+    match lock.try_lock() {
+        Ok(()) => Some(lock),
+        Err(TryLockError::WouldBlock) => {
+            info!("Another deadlock-api-ingest instance is already running, exiting.");
+            std::process::exit(0);
+        }
+        Err(TryLockError::Error(e)) => {
+            warn!("Cannot acquire instance lock, running without it: {e}");
+            None
+        }
+    }
+}
+
 fn run_launch_wrapper<F: FnOnce() + Send + 'static>(background_work: F, command: &[String]) -> i32 {
     std::thread::spawn(background_work);
     info!("Launching game: {}", command.join(" "));
@@ -116,6 +140,12 @@ fn main() {
     if args.own_matches {
         std::process::exit(i32::from(!gc::run_own_matches_blocking()));
     }
+
+    // Only the long-running watcher is single-instance: `--once` is a short manual run, and
+    // the launch wrapper must always start the game even if the autostart copy is running.
+    let _instance_lock = (args.command.is_empty() && !args.once)
+        .then(acquire_instance_lock)
+        .flatten();
 
     let Ok(steam_dir) = steamlocate::SteamDir::locate() else {
         error!("Could not find Steam directory. Waiting 30s before exiting.");

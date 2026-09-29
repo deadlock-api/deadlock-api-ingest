@@ -258,7 +258,8 @@ args = ""
 For Each arg In WScript.Arguments
     args = args & " " & arg
 Next
-WshShell.Run """$ExecutablePath""" & args, 0, False
+' Wait for the exe so the scheduler tracks its real lifetime (MultipleInstances applies)
+WshShell.Run """$ExecutablePath""" & args, 0, True
 "@
                 Set-Content -Path $vbsWrapperPath -Value $vbsContent -Force
 
@@ -269,8 +270,10 @@ WshShell.Run """$ExecutablePath""" & args, 0, False
                 # Define the trigger (when to run it - at user logon)
                 $taskTrigger = New-ScheduledTaskTrigger -AtLogOn
 
-                # Define the user and permissions (run as current user with standard privileges)
-                $taskPrincipal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U -RunLevel Limited
+                # Define the user and permissions (run as current user with standard privileges).
+                # Interactive, not S4U: an S4U token can't unlock the user's DPAPI keys, so the
+                # saved Steam session could never be decrypted and the GC pass would never run.
+                $taskPrincipal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
 
                 # Define settings (allow it to run indefinitely, prevent multiple instances)
                 $taskSettings = New-ScheduledTaskSettingsSet `
@@ -614,7 +617,7 @@ if (-not $script:HasErrors) {
         Write-Host "You can manage the main task via the Task Scheduler (taskschd.msc) or PowerShell:" -ForegroundColor White
         Write-Host "  - Check status:  Get-ScheduledTask -TaskName $AppName | Get-ScheduledTaskInfo" -ForegroundColor Yellow
         Write-Host "  - Run manually:  Start-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
-        Write-Host "  - Stop it:       Stop-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
+        Write-Host "  - Stop it:       Stop-ScheduledTask -TaskName $AppName; Stop-Process -Name $AppName" -ForegroundColor Yellow
         Write-Host "  - Disable auto-start: Unregister-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
         Write-Host " "
     }
