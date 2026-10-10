@@ -163,12 +163,30 @@ download_file() {
     fi
 }
 
+# Installs the app icon into the user's icon theme, so desktop entries can use Icon=$APP_NAME.
+# Best effort: entries without it still work, just with a generic icon.
+install_icon() {
+    local version="$1"
+    local icon_dir="$HOME/.local/share/icons/hicolor/256x256/apps"
+    local icon_url="https://raw.githubusercontent.com/$GITHUB_REPO/$version/assets/icon.png"
+
+    if ! mkdir -p "$icon_dir" 2>/dev/null || ! curl -fsSL "$icon_url" -o "$icon_dir/$APP_NAME.png" 2>> "$LOG_FILE"; then
+        log "WARN" "Could not install the app icon; shortcuts will use a generic icon."
+        return 1
+    fi
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -q -t "$HOME/.local/share/icons/hicolor" 2>> "$LOG_FILE" || true
+    fi
+    return 0
+}
+
 # Function to create desktop shortcut
 create_desktop_shortcut() {
     local executable_path="$1"
     local arguments="${2:-}"
     local shortcut_name="${3:-Deadlock API Ingest}"
     local comment="${4:-Monitors Steam cache for Deadlock match replays}"
+    local file_name="${5:-}"
 
     log "INFO" "Creating desktop shortcut: $shortcut_name..."
 
@@ -182,8 +200,10 @@ create_desktop_shortcut() {
     fi
 
     # Create a safe filename from the shortcut name
-    local safe_name
-    safe_name=$(echo "$shortcut_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+    local safe_name="$file_name"
+    if [[ -z "$safe_name" ]]; then
+        safe_name=$(echo "$shortcut_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+    fi
     local desktop_file="$desktop_dir/${safe_name}.desktop"
 
     # Build the Exec line with arguments if provided
@@ -200,8 +220,11 @@ Type=Application
 Name=$shortcut_name
 Comment=$comment
 Exec=$exec_line
+Icon=$APP_NAME
 Terminal=false
-Keywords=deadlock;api;steam;
+Categories=Utility;
+Keywords=deadlock;api;ingest;steam;matches;replay;tracker;statlocker;
+StartupWMClass=$APP_NAME
 EOF
 
     chmod 644 "$desktop_file"
@@ -458,7 +481,7 @@ main() {
             local main_created=false
             local once_created=false
 
-            if create_desktop_shortcut "$final_executable_path" "" "Deadlock API Ingest" "Monitors Steam cache for Deadlock match replays"; then
+            if create_desktop_shortcut "$final_executable_path" "" "Deadlock API Ingest (Background)" "Monitors Steam cache for Deadlock match replays" "$APP_NAME"; then
                 main_created=true
             fi
 
@@ -483,8 +506,13 @@ main() {
         fi
     fi
 
-    # App-menu entry for the status window, which shows the matches that were submitted.
-    create_desktop_shortcut "$final_executable_path" "--gui" "Deadlock API Ingest Status" "Shows the matches Deadlock API Ingest has submitted" || true
+    # The app-menu entry everyone gets (search "Deadlock"): opens the status window, which
+    # also starts the background service if it isn't running.
+    # Neither is required for the tool to work, so failures only warn.
+    install_icon "$version" || true
+    if ! create_desktop_shortcut "$final_executable_path" "--gui" "Deadlock API Ingest" "See the Deadlock matches you have sent to trackers" "$APP_NAME-status"; then
+        log "WARN" "Could not create the app menu entry. Open the status window with: $final_executable_path --gui"
+    fi
 
     log "SUCCESS" "🚀 Deadlock API Ingest has been installed successfully!"
 

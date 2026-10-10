@@ -39,6 +39,13 @@ pub(crate) fn run() -> i32 {
             size: Size::new(720.0, 640.0),
             min_size: Some(Size::new(520.0, 480.0)),
             icon: window_icon(),
+            // Matches StartupWMClass in install-linux.sh's desktop entry, so the desktop
+            // shows the open window under that launcher and icon.
+            #[cfg(target_os = "linux")]
+            platform_specific: iced::window::settings::PlatformSpecific {
+                application_id: crate::paths::APP_NAME.to_owned(),
+                ..Default::default()
+            },
             ..iced::window::Settings::default()
         })
         .run();
