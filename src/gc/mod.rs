@@ -25,7 +25,6 @@ mod friends;
 mod quota;
 mod store;
 
-use core::ops::ControlFlow;
 use core::time::Duration;
 use std::collections::HashSet;
 
@@ -198,7 +197,8 @@ async fn run_account(
         .await
         .inspect_err(|e| warn!("gc: {e}"))
         .unwrap_or_default();
-    if to_fetch.iter().all(|id| processed.contains(id)) && history_quota.remaining(now) == 0 {
+    if to_fetch.iter().all(|id| processed.contains(id)) && history_budget(&history_quota, now) == 0
+    {
         info!("gc: nothing to fetch for account {account}");
         return Ok(());
     }
@@ -228,20 +228,21 @@ async fn run_account(
         processed,
         last_request,
         sys,
-        fetched: 0,
     };
     // Friends' fresh matches go first; whatever quota is left goes to the global list.
-    let friend_matches = run.friend_matches().await;
-    if run.fetch_salts(friend_matches).await.is_continue() {
-        let picks = fresh_newest_first(to_fetch, run.processed, run.quota.remaining(now_secs()));
-        let _ = run.fetch_salts(picks).await;
-    }
+    let mut match_ids = run.friend_matches().await;
+    match_ids.extend(fresh_newest_first(to_fetch, run.processed, usize::MAX));
+    let fetched = run.fetch_salts(match_ids).await;
 
-    info!(
-        "gc: account {account} fetched {} match salt(s)",
-        run.fetched
-    );
+    info!("gc: account {account} fetched {fetched} match salt(s)");
     Ok(())
+}
+
+/// Friend history lookups this account may still make this pass.
+fn history_budget(history_quota: &QuotaWindow, now: i64) -> usize {
+    history_quota
+        .remaining(now)
+        .min(MAX_FRIEND_HISTORIES_PER_PASS)
 }
 
 /// One account's connected pass: the live session plus the state its fetches spend.
@@ -254,22 +255,47 @@ struct AccountRun<'a> {
     processed: &'a mut HashSet<u64>,
     last_request: &'a mut Option<Instant>,
     sys: &'a mut sysinfo::System,
-    fetched: u32,
 }
 
 impl AccountRun<'_> {
-    /// Fetch and post salts for `match_ids` in order, within the salt quota. Breaks when
-    /// the rest of this account's run must stop (rate limit, game launched).
-    async fn fetch_salts(&mut self, match_ids: Vec<u64>) -> ControlFlow<()> {
+    /// Record one salt fetch (or, if `exhaust`, Steam's rate limit) and persist it.
+    fn spend_salt(&mut self, exhaust: bool) -> Result<(), GcError> {
+        if exhaust {
+            self.quota.exhaust(now_secs());
+        } else {
+            self.quota.try_consume(now_secs());
+        }
+        self.store.save_quota(self.ctx.steam_id64, &self.quota)
+    }
+
+    /// Record one history lookup (or, if `exhaust`, Steam's rate limit) and persist it.
+    fn spend_history(&mut self, exhaust: bool) -> Result<(), GcError> {
+        if exhaust {
+            self.history_quota.exhaust(now_secs());
+        } else {
+            self.history_quota.try_consume(now_secs());
+        }
+        self.store
+            .save_history_quota(self.ctx.steam_id64, &self.history_quota)
+    }
+
+    /// Fetch and post salts for `match_ids` in order, skipping ones already processed this
+    /// pass, until the salt quota is spent or the run must stop (rate limit, game
+    /// launched). Returns how many were posted.
+    async fn fetch_salts(&mut self, match_ids: Vec<u64>) -> u32 {
         let account = self.ctx.account_id();
+        let mut fetched = 0;
         for match_id in match_ids {
             if self.quota.remaining(now_secs()) == 0 {
                 break;
             }
+            if self.processed.contains(&match_id) {
+                continue;
+            }
             throttle(self.last_request, GC_MIN_INTERVAL).await;
             if game_running(self.sys) {
                 info!("gc: Deadlock launched mid-pass, stopping account {account}");
-                return ControlFlow::Break(());
+                break;
             }
 
             let salts = match self.session.fetch_match_salts(match_id).await {
@@ -281,9 +307,10 @@ impl AccountRun<'_> {
                     warn!(
                         "gc: account {account} rate-limited by Steam GC; quota exhausted for 24h"
                     );
-                    self.quota.exhaust(now_secs());
-                    let _ = self.store.save_quota(self.ctx.steam_id64, &self.quota);
-                    return ControlFlow::Break(());
+                    if let Err(e) = self.spend_salt(true) {
+                        warn!("gc: {e}");
+                    }
+                    break;
                 }
                 // Any other failure fetched nothing; skip the id so it isn't retried this pass.
                 Err(e) => {
@@ -294,16 +321,15 @@ impl AccountRun<'_> {
             };
 
             self.processed.insert(match_id);
-            self.quota.try_consume(now_secs());
-            if let Err(e) = self.store.save_quota(self.ctx.steam_id64, &self.quota) {
+            if let Err(e) = self.spend_salt(false) {
                 warn!("gc: {e}");
-                return ControlFlow::Break(());
+                break;
             }
             if post(salts).await {
-                self.fetched += 1;
+                fetched += 1;
             }
         }
-        ControlFlow::Continue(())
+        fetched
     }
 
     /// Matches deadlock-api is missing salts for, newest first, from the histories of
@@ -311,11 +337,7 @@ impl AccountRun<'_> {
     /// failure just yields fewer (or no) matches.
     async fn friend_matches(&mut self) -> Vec<u64> {
         let now = now_secs();
-        let budget = self
-            .history_quota
-            .remaining(now)
-            .min(self.quota.remaining(now))
-            .min(MAX_FRIEND_HISTORIES_PER_PASS);
+        let budget = history_budget(&self.history_quota, now).min(self.quota.remaining(now));
         if budget == 0 || self.session.friends.is_empty() {
             return Vec::new();
         }
@@ -330,10 +352,8 @@ impl AccountRun<'_> {
             }
         };
 
-        let mut new_ids = self.lookup_histories(picks).await;
-        new_ids.retain(|id| !self.processed.contains(id));
-        new_ids.sort_unstable_by(|a, b| b.cmp(a));
-        new_ids.dedup();
+        let found = self.lookup_histories(picks).await;
+        let mut new_ids = fresh_newest_first(found, self.processed, usize::MAX);
         if new_ids.is_empty() {
             return new_ids;
         }
@@ -362,16 +382,22 @@ impl AccountRun<'_> {
             .copied()
             .filter(|id| cooldowns.get(id).is_none_or(|&until| until <= now))
             .collect();
-        let candidates = blocking(move || active_friends(&due)).await?;
+        // Steam's persona replies and the deadlock-api reads don't depend on each other.
+        let (candidates, personas) = {
+            let due_api = due.clone();
+            tokio::join!(
+                blocking(move || active_friends(&due_api)),
+                self.session.request_personas(&due)
+            )
+        };
+        let candidates = candidates?;
 
-        let ids: Vec<u32> = candidates.iter().map(|c| c.account_id).collect();
-        let personas = self.session.request_personas(&ids).await;
         let scored = candidates
             .iter()
             .filter_map(|c| {
                 let persona = personas.get(&c.account_id).copied();
                 friends::estimate(now, c.last_end, &c.starts, persona)
-                    .map(|score| (c.account_id, score))
+                    .map(|score| ((c.account_id, c.latest_match_id), score))
             })
             .collect();
         let picks = friends::pick(scored, budget);
@@ -382,13 +408,7 @@ impl AccountRun<'_> {
             candidates.len(),
             picks.len()
         );
-        Ok(picks
-            .into_iter()
-            .filter_map(|id| {
-                let c = candidates.iter().find(|c| c.account_id == id)?;
-                Some((id, c.latest_match_id))
-            })
-            .collect())
+        Ok(picks)
     }
 
     /// Fetch each friend's newest history page and return the match ids newer than what
@@ -400,13 +420,15 @@ impl AccountRun<'_> {
             if game_running(self.sys) {
                 break;
             }
+            let result = self.session.fetch_recent_matches(friend).await;
+            let rate_limited = matches!(result, Err(GcError::GcRateLimited));
             // Every request counts against Steam's limit, whatever it answers.
-            self.history_quota.try_consume(now_secs());
-            let _ = self
-                .store
-                .save_history_quota(self.ctx.steam_id64, &self.history_quota);
+            if let Err(e) = self.spend_history(rate_limited) {
+                warn!("gc: {e}");
+                break;
+            }
 
-            let cooldown = match self.session.fetch_recent_matches(friend).await {
+            let cooldown = match result {
                 Ok(history) => {
                     new_ids.extend(history.into_iter().filter(|&id| id > latest_stored));
                     FRIEND_COOLDOWN_SECS
@@ -416,10 +438,6 @@ impl AccountRun<'_> {
                         "gc: account {} rate-limited on match history; skipping friends",
                         self.ctx.account_id()
                     );
-                    self.history_quota.exhaust(now_secs());
-                    let _ = self
-                        .store
-                        .save_history_quota(self.ctx.steam_id64, &self.history_quota);
                     break;
                 }
                 Err(GcError::HistoryPrivate) => PRIVATE_FRIEND_COOLDOWN_SECS,
@@ -429,7 +447,9 @@ impl AccountRun<'_> {
                 }
             };
             let now = now_secs();
-            let _ = self.store.set_friend_cooldown(friend, now + cooldown, now);
+            if let Err(e) = self.store.set_friend_cooldown(friend, now + cooldown, now) {
+                warn!("gc: {e}");
+            }
         }
         new_ids
     }
@@ -439,12 +459,14 @@ impl AccountRun<'_> {
 struct ActiveFriend {
     account_id: u32,
     latest_match_id: u64,
+    /// End of their newest stored match.
     last_end: i64,
+    /// Start times of their newest stored matches, newest first.
     starts: Vec<i64>,
 }
 
 /// Of `friends`, the ones deadlock-api knows play Deadlock, with their stored history.
-/// Friends whose stored history can't be read are skipped.
+/// Friends whose stored history can't be read, or is empty, are skipped.
 fn active_friends(friends: &[u32]) -> Result<Vec<ActiveFriend>, GcError> {
     let players = api::recent_players(friends)?;
     Ok(players
@@ -453,14 +475,20 @@ fn active_friends(friends: &[u32]) -> Result<Vec<ActiveFriend>, GcError> {
             let history = api::stored_match_history(account_id)
                 .inspect_err(|e| warn!("gc: stored history for friend {account_id}: {e}"))
                 .ok()?;
+            let latest_match_id = history.iter().map(|r| r.match_id).max()?;
+            let last_end = history
+                .iter()
+                .map(|r| i64::from(r.start_time) + i64::from(r.match_duration_s))
+                .max()?;
             Some(ActiveFriend {
                 account_id,
-                latest_match_id: history.iter().map(|r| r.match_id).max()?,
-                last_end: history
+                latest_match_id,
+                last_end,
+                starts: history
                     .iter()
-                    .map(|r| i64::from(r.start_time) + i64::from(r.match_duration_s))
-                    .max()?,
-                starts: history.iter().map(|r| i64::from(r.start_time)).collect(),
+                    .take(friends::GAP_SAMPLE)
+                    .map(|r| i64::from(r.start_time))
+                    .collect(),
             })
         })
         .collect())
