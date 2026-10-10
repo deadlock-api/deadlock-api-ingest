@@ -106,6 +106,7 @@ fi
 rm -f "$HOME/.local/share/applications/$APP_NAME.desktop"
 rm -f "$HOME/.local/share/applications/$APP_NAME-once.desktop"
 rm -f "$HOME/.local/share/applications/$APP_NAME-status.desktop"
+rm -f "$HOME/.local/share/icons/hicolor/256x256/apps/$APP_NAME.png"
 
 # Remove installation and symlink
 echo -e "${CYAN}Removing installation files...${NC}"
