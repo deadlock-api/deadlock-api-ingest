@@ -22,10 +22,53 @@ fn main() {
         std::fs::write(&rc, resource_script(&icon)).expect("write app.rc");
         // Fail the build instead of shipping an exe without icon and version info, which
         // is what winres did silently on the MinGW toolchain.
-        if let Err(e) = embed_resource::compile(&rc, embed_resource::NONE).manifest_required() {
+        if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu") {
+            // embed-resource picks its compiler by the *host* toolchain, so on a Windows
+            // host with MSVC it would produce an rc.exe library MinGW's linker can't read.
+            embed_with_windres(&rc, &Path::new(&out_dir).join("app-res.o"));
+        } else if let Err(e) =
+            embed_resource::compile(&rc, embed_resource::NONE).manifest_required()
+        {
             panic!("Failed to embed Windows resources: {e}");
         }
     }
+}
+
+/// Compiles `rc` with MinGW's windres into a COFF object and links it into the binaries.
+fn embed_with_windres(rc: &Path, object: &Path) {
+    let target = std::env::var("TARGET").expect("set by cargo");
+    // Overridable like embed-resource; otherwise the cross-prefixed name, then plain windres
+    // (what MinGW installs on Windows).
+    let candidates: Vec<String> = std::env::var(format!("RC_{target}"))
+        .or_else(|_| std::env::var("RC"))
+        .map(|rc| vec![rc])
+        .unwrap_or_else(|_| {
+            vec![
+                "x86_64-w64-mingw32-windres".to_owned(),
+                "windres".to_owned(),
+            ]
+        });
+    let mut errors = Vec::new();
+    for windres in &candidates {
+        let status = std::process::Command::new(windres)
+            .arg("--input")
+            .arg(rc)
+            .args(["--input-format=rc", "--output-format=coff", "--output"])
+            .arg(object)
+            .status();
+        match status {
+            Ok(s) if s.success() => {
+                println!("cargo:rustc-link-arg-bins={}", object.display());
+                return;
+            }
+            Ok(s) => errors.push(format!("{windres}: {s}")),
+            Err(e) => errors.push(format!("{windres}: {e}")),
+        }
+    }
+    panic!(
+        "Failed to embed Windows resources, no working windres ({}). Install MinGW's binutils or set RC_{target}.",
+        errors.join("; ")
+    );
 }
 
 /// Raw RGBA pixels of the `WINDOW_ICON_SIZE` entry of `icon.ico`.
