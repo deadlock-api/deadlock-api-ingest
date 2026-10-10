@@ -38,6 +38,7 @@ pub(crate) fn run() -> i32 {
         .window(iced::window::Settings {
             size: Size::new(720.0, 640.0),
             min_size: Some(Size::new(520.0, 480.0)),
+            icon: window_icon(),
             ..iced::window::Settings::default()
         })
         .run();
@@ -48,6 +49,14 @@ pub(crate) fn run() -> i32 {
             1
         }
     }
+}
+
+/// `icon.ico`'s 64x64 image as RGBA, decoded by `build.rs`.
+fn window_icon() -> Option<iced::window::Icon> {
+    const RGBA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/window-icon.rgba"));
+    iced::window::icon::from_rgba(RGBA.to_vec(), 64, 64)
+        .inspect_err(|e| warn!("Invalid window icon: {e}"))
+        .ok()
 }
 
 #[derive(Debug, Clone)]

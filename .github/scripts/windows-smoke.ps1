@@ -70,6 +70,17 @@ $installed = Join-Path $installDir 'deadlock-api-ingest.exe'
 $startMenuLink = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Deadlock API Ingest.lnk'
 $desktopLink = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Deadlock API Ingest.lnk'
 
+# --- The exe carries its icon and version info (build.rs) ----------------------------------------
+$info = (Get-Item $Exe).VersionInfo
+Write-Host "version info: $($info.ProductName) $($info.ProductVersion) by $($info.CompanyName)"
+Test-Check 'version info embedded' { $info.ProductName -eq 'Deadlock API Ingest' -and $info.CompanyName -eq 'Deadlock API' }
+Add-Type -Namespace Win32 -Name Shell -MemberDefinition @'
+[DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+public static extern uint ExtractIconEx(string file, int index, IntPtr[] large, IntPtr[] small, uint count);
+'@
+# With index -1, ExtractIconEx returns how many icons the file contains.
+Test-Check 'icon embedded' { [Win32.Shell]::ExtractIconEx((Resolve-Path $Exe).Path, -1, $null, $null, 0) -gt 0 }
+
 # A Steam install without matches, so the watcher keeps running instead of giving up.
 $steam = Join-Path $env:RUNNER_TEMP 'Steam'
 New-Item -ItemType Directory -Force (Join-Path $steam 'appcache\httpcache') | Out-Null
