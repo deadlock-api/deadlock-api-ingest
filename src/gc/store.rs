@@ -1,7 +1,8 @@
-//! Persisted, per-account GC state: the rolling-window quota timestamps (so the
-//! 40/24h cap survives restarts) and a GC "backoff until" for accounts whose
-//! handshake is known-broken (e.g. they don't own the game). A single JSON file in
-//! the app data dir, loaded and saved whole — the data is tiny.
+//! Persisted GC state: per account, the rolling-window salt and friend-history quota
+//! timestamps (so the caps survive restarts) and a GC "backoff until" for accounts whose
+//! handshake is known-broken (e.g. they don't own the game); globally, a per-friend
+//! "don't re-check until" so friends shared by several accounts are looked up once. A
+//! single JSON file in the app data dir, loaded and saved whole — the data is tiny.
 
 use std::collections::HashMap;
 use std::fs::{File, TryLockError};
@@ -12,7 +13,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use super::error::GcError;
-use super::quota::{FETCH_QUOTA_LIMIT, FETCH_QUOTA_WINDOW_SECS, QuotaWindow};
+use super::quota::{
+    FETCH_QUOTA_LIMIT, FETCH_QUOTA_WINDOW_SECS, FRIEND_HISTORY_QUOTA_LIMIT, QuotaWindow,
+};
 
 const STORE_FILE: &str = "gc-quota.json";
 const LOCK_FILE: &str = "gc-quota.lock";
@@ -30,12 +33,17 @@ struct AccountState {
     quota_hits: Vec<i64>,
     #[serde(default)]
     gc_backoff_until: Option<i64>,
+    #[serde(default)]
+    history_hits: Vec<i64>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
 struct StoreData {
     #[serde(default)]
     accounts: HashMap<u64, AccountState>,
+    /// Friend account id -> unix time before which their history isn't looked up again.
+    #[serde(default)]
+    friend_cooldowns: HashMap<u32, i64>,
 }
 
 /// Exclusive owner of the store while alive: it holds an OS file lock, so two processes
@@ -97,6 +105,41 @@ impl GcStore {
     fn update(&self, steam_id64: u64, f: impl FnOnce(&mut AccountState)) -> Result<(), GcError> {
         let mut data = self.load()?;
         f(data.accounts.entry(steam_id64).or_default());
+        self.save(&data)
+    }
+
+    pub(crate) fn load_history_quota(&self, steam_id64: u64) -> Result<QuotaWindow, GcError> {
+        let hits = self.account(steam_id64)?.history_hits;
+        Ok(QuotaWindow::new(
+            hits,
+            FRIEND_HISTORY_QUOTA_LIMIT,
+            FETCH_QUOTA_WINDOW_SECS,
+        ))
+    }
+
+    pub(crate) fn save_history_quota(
+        &self,
+        steam_id64: u64,
+        quota: &QuotaWindow,
+    ) -> Result<(), GcError> {
+        self.update(steam_id64, |a| a.history_hits = quota.snapshot())
+    }
+
+    /// Friends whose history must not be looked up before the returned time.
+    pub(crate) fn friend_cooldowns(&self) -> Result<HashMap<u32, i64>, GcError> {
+        Ok(self.load()?.friend_cooldowns)
+    }
+
+    /// Records a friend's cooldown and drops the ones that already expired.
+    pub(crate) fn set_friend_cooldown(
+        &self,
+        account_id: u32,
+        until: i64,
+        now: i64,
+    ) -> Result<(), GcError> {
+        let mut data = self.load()?;
+        data.friend_cooldowns.retain(|_, &mut t| t > now);
+        data.friend_cooldowns.insert(account_id, until);
         self.save(&data)
     }
 

@@ -1,9 +1,13 @@
 //! Steam Game Coordinator match-salt recovery.
 //!
 //! Independently of the httpcache scraper, this logs into every remembered Steam
-//! account through the user's own session, pulls the deadlock-api "to-fetch" list, and
-//! recovers up to [`quota::FETCH_QUOTA_LIMIT`] match salts per account per 24h via the
-//! GC `GetMatchMetaData` message, `POST`ing them to the same salts endpoint.
+//! account through the user's own session and recovers up to [`quota::FETCH_QUOTA_LIMIT`]
+//! match salts per account per 24h via the GC `GetMatchMetaData` message, `POST`ing them
+//! to the same salts endpoint. Matches come first from the account's Steam friends: those
+//! deadlock-api knows play Deadlock and who likely played since their last stored match
+//! (see [`friends`]) get their newest history page fetched through the GC (at most
+//! [`quota::FRIEND_HISTORY_QUOTA_LIMIT`] per account per 24h). Remaining quota goes to the
+//! deadlock-api "to-fetch" list.
 //!
 //! It never runs while Deadlock itself is running (Steam routes GC traffic to the
 //! game's own pipe), and it is best-effort per account: an account that can't reach the
@@ -17,9 +21,11 @@ mod api;
 mod auth;
 mod client;
 mod error;
+mod friends;
 mod quota;
 mod store;
 
+use core::ops::ControlFlow;
 use core::time::Duration;
 use std::collections::HashSet;
 
@@ -29,6 +35,7 @@ use tracing::{info, warn};
 use auth::AuthContext;
 use client::GcSession;
 use error::GcError;
+use quota::QuotaWindow;
 use store::{GcStore, now_secs};
 
 use crate::utils::Salts;
@@ -41,6 +48,13 @@ const BACKGROUND_PASS_INTERVAL: Duration = Duration::from_mins(30);
 // An account whose GC handshake failed (e.g. doesn't own the game) fails identically
 // every pass; skip it for a day rather than re-paying the connect/timeout cost.
 const GC_BACKOFF_SECS: i64 = 24 * 60 * 60;
+// Friend history lookups per account per pass, on top of the 20/24h history quota, so one
+// pass doesn't spend the whole day's budget at once.
+const MAX_FRIEND_HISTORIES_PER_PASS: usize = 5;
+// After a friend's history was looked up (by any account), leave them alone for a while;
+// a private history won't become public soon.
+const FRIEND_COOLDOWN_SECS: i64 = 6 * 60 * 60;
+const PRIVATE_FRIEND_COOLDOWN_SECS: i64 = 7 * 24 * 60 * 60;
 
 // Deadlock process names across platforms; if any is running, GC traffic goes to the
 // game, not us, so the whole pass is skipped.
@@ -147,6 +161,15 @@ async fn run_pass(contexts: &[AuthContext], store: &GcStore, sys: &mut sysinfo::
     }
 }
 
+/// Run a blocking deadlock-api call off the async runtime.
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, GcError> + Send + 'static,
+) -> Result<T, GcError> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| GcError::Api(format!("API task panicked: {e}")))?
+}
+
 async fn run_account(
     ctx: &AuthContext,
     store: &GcStore,
@@ -163,18 +186,19 @@ async fn run_account(
         return Ok(());
     }
 
-    let mut quota = store.load_quota(ctx.steam_id64)?;
-    let remaining = quota.remaining(now);
-    if remaining == 0 {
+    let quota = store.load_quota(ctx.steam_id64)?;
+    if quota.remaining(now) == 0 {
         info!("gc: skipping account {account}, 24h quota spent");
         return Ok(());
     }
+    let history_quota = store.load_history_quota(ctx.steam_id64)?;
 
-    let to_fetch = tokio::task::spawn_blocking(api::to_fetch)
+    // A failed to-fetch read only empties that phase; friends' matches can still be fetched.
+    let to_fetch = blocking(api::to_fetch)
         .await
-        .map_err(|e| GcError::Api(format!("to-fetch task panicked: {e}")))??;
-    let picks = fresh_newest_first(to_fetch, processed, remaining);
-    if picks.is_empty() {
+        .inspect_err(|e| warn!("gc: {e}"))
+        .unwrap_or_default();
+    if to_fetch.iter().all(|id| processed.contains(id)) && history_quota.remaining(now) == 0 {
         info!("gc: nothing to fetch for account {account}");
         return Ok(());
     }
@@ -195,42 +219,251 @@ async fn run_account(
         }
     };
 
-    let mut fetched = 0u32;
-    for match_id in picks {
-        throttle(last_request, GC_MIN_INTERVAL).await;
-        if game_running(sys) {
-            info!("gc: Deadlock launched mid-pass, stopping account {account}");
-            break;
-        }
+    let mut run = AccountRun {
+        ctx,
+        store,
+        session,
+        quota,
+        history_quota,
+        processed,
+        last_request,
+        sys,
+        fetched: 0,
+    };
+    // Friends' fresh matches go first; whatever quota is left goes to the global list.
+    let friend_matches = run.friend_matches().await;
+    if run.fetch_salts(friend_matches).await.is_continue() {
+        let picks = fresh_newest_first(to_fetch, run.processed, run.quota.remaining(now_secs()));
+        let _ = run.fetch_salts(picks).await;
+    }
 
-        let salts = match session.fetch_match_salts(match_id).await {
-            Ok(s) => s,
-            // Steam itself is throttling this account: treat the 24h bucket as spent so we
-            // stop hammering it. Don't mark the id processed — another account may fetch it.
-            Err(GcError::GcRateLimited) => {
-                warn!("gc: account {account} rate-limited by Steam GC; quota exhausted for 24h");
-                quota.exhaust(now_secs());
-                let _ = store.save_quota(ctx.steam_id64, &quota);
+    info!(
+        "gc: account {account} fetched {} match salt(s)",
+        run.fetched
+    );
+    Ok(())
+}
+
+/// One account's connected pass: the live session plus the state its fetches spend.
+struct AccountRun<'a> {
+    ctx: &'a AuthContext,
+    store: &'a GcStore,
+    session: GcSession,
+    quota: QuotaWindow,
+    history_quota: QuotaWindow,
+    processed: &'a mut HashSet<u64>,
+    last_request: &'a mut Option<Instant>,
+    sys: &'a mut sysinfo::System,
+    fetched: u32,
+}
+
+impl AccountRun<'_> {
+    /// Fetch and post salts for `match_ids` in order, within the salt quota. Breaks when
+    /// the rest of this account's run must stop (rate limit, game launched).
+    async fn fetch_salts(&mut self, match_ids: Vec<u64>) -> ControlFlow<()> {
+        let account = self.ctx.account_id();
+        for match_id in match_ids {
+            if self.quota.remaining(now_secs()) == 0 {
                 break;
             }
-            // Any other failure fetched nothing; skip the id so it isn't retried this pass.
+            throttle(self.last_request, GC_MIN_INTERVAL).await;
+            if game_running(self.sys) {
+                info!("gc: Deadlock launched mid-pass, stopping account {account}");
+                return ControlFlow::Break(());
+            }
+
+            let salts = match self.session.fetch_match_salts(match_id).await {
+                Ok(s) => s,
+                // Steam itself is throttling this account: treat the 24h bucket as spent so
+                // we stop hammering it. Don't mark the id processed — another account may
+                // fetch it.
+                Err(GcError::GcRateLimited) => {
+                    warn!(
+                        "gc: account {account} rate-limited by Steam GC; quota exhausted for 24h"
+                    );
+                    self.quota.exhaust(now_secs());
+                    let _ = self.store.save_quota(self.ctx.steam_id64, &self.quota);
+                    return ControlFlow::Break(());
+                }
+                // Any other failure fetched nothing; skip the id so it isn't retried this pass.
+                Err(e) => {
+                    warn!("gc: account {account} salt fetch failed for {match_id}: {e}");
+                    self.processed.insert(match_id);
+                    continue;
+                }
+            };
+
+            self.processed.insert(match_id);
+            self.quota.try_consume(now_secs());
+            if let Err(e) = self.store.save_quota(self.ctx.steam_id64, &self.quota) {
+                warn!("gc: {e}");
+                return ControlFlow::Break(());
+            }
+            if post(salts).await {
+                self.fetched += 1;
+            }
+        }
+        ControlFlow::Continue(())
+    }
+
+    /// Matches deadlock-api is missing salts for, newest first, from the histories of
+    /// friends who most likely played since the API last saw them. Best-effort: any
+    /// failure just yields fewer (or no) matches.
+    async fn friend_matches(&mut self) -> Vec<u64> {
+        let now = now_secs();
+        let budget = self
+            .history_quota
+            .remaining(now)
+            .min(self.quota.remaining(now))
+            .min(MAX_FRIEND_HISTORIES_PER_PASS);
+        if budget == 0 || self.session.friends.is_empty() {
+            return Vec::new();
+        }
+        let picks = match self.pick_friends(budget).await {
+            Ok(p) => p,
             Err(e) => {
-                warn!("gc: account {account} salt fetch failed for {match_id}: {e}");
-                processed.insert(match_id);
-                continue;
+                warn!(
+                    "gc: friend lookup failed for account {}: {e}",
+                    self.ctx.account_id()
+                );
+                return Vec::new();
             }
         };
 
-        processed.insert(match_id);
-        quota.try_consume(now_secs());
-        store.save_quota(ctx.steam_id64, &quota)?;
-        if post(salts).await {
-            fetched += 1;
+        let mut new_ids = self.lookup_histories(picks).await;
+        new_ids.retain(|id| !self.processed.contains(id));
+        new_ids.sort_unstable_by(|a, b| b.cmp(a));
+        new_ids.dedup();
+        if new_ids.is_empty() {
+            return new_ids;
         }
+        let ids = new_ids.clone();
+        match blocking(move || api::known_match_ids(&ids)).await {
+            Ok(known) => new_ids.retain(|id| !known.contains(id)),
+            Err(e) => warn!("gc: {e}"),
+        }
+        info!(
+            "gc: account {} found {} new friend match(es)",
+            self.ctx.account_id(),
+            new_ids.len()
+        );
+        new_ids
     }
 
-    info!("gc: account {account} fetched {fetched} match salt(s)");
-    Ok(())
+    /// Up to `budget` friends worth a history lookup, most likely first, each with the
+    /// newest match id deadlock-api has stored for them.
+    async fn pick_friends(&self, budget: usize) -> Result<Vec<(u32, u64)>, GcError> {
+        let now = now_secs();
+        let cooldowns = self.store.friend_cooldowns()?;
+        let due: Vec<u32> = self
+            .session
+            .friends
+            .iter()
+            .copied()
+            .filter(|id| cooldowns.get(id).is_none_or(|&until| until <= now))
+            .collect();
+        let candidates = blocking(move || active_friends(&due)).await?;
+
+        let ids: Vec<u32> = candidates.iter().map(|c| c.account_id).collect();
+        let personas = self.session.request_personas(&ids).await;
+        let scored = candidates
+            .iter()
+            .filter_map(|c| {
+                let persona = personas.get(&c.account_id).copied();
+                friends::estimate(now, c.last_end, &c.starts, persona)
+                    .map(|score| (c.account_id, score))
+            })
+            .collect();
+        let picks = friends::pick(scored, budget);
+        info!(
+            "gc: account {}: {} friend(s), {} recently active, {} likely with new matches",
+            self.ctx.account_id(),
+            self.session.friends.len(),
+            candidates.len(),
+            picks.len()
+        );
+        Ok(picks
+            .into_iter()
+            .filter_map(|id| {
+                let c = candidates.iter().find(|c| c.account_id == id)?;
+                Some((id, c.latest_match_id))
+            })
+            .collect())
+    }
+
+    /// Fetch each friend's newest history page and return the match ids newer than what
+    /// deadlock-api has stored for them. Spends the history quota and sets cooldowns.
+    async fn lookup_histories(&mut self, picks: Vec<(u32, u64)>) -> Vec<u64> {
+        let mut new_ids = Vec::new();
+        for (friend, latest_stored) in picks {
+            throttle(self.last_request, GC_MIN_INTERVAL).await;
+            if game_running(self.sys) {
+                break;
+            }
+            // Every request counts against Steam's limit, whatever it answers.
+            self.history_quota.try_consume(now_secs());
+            let _ = self
+                .store
+                .save_history_quota(self.ctx.steam_id64, &self.history_quota);
+
+            let cooldown = match self.session.fetch_recent_matches(friend).await {
+                Ok(history) => {
+                    new_ids.extend(history.into_iter().filter(|&id| id > latest_stored));
+                    FRIEND_COOLDOWN_SECS
+                }
+                Err(GcError::GcRateLimited) => {
+                    warn!(
+                        "gc: account {} rate-limited on match history; skipping friends",
+                        self.ctx.account_id()
+                    );
+                    self.history_quota.exhaust(now_secs());
+                    let _ = self
+                        .store
+                        .save_history_quota(self.ctx.steam_id64, &self.history_quota);
+                    break;
+                }
+                Err(GcError::HistoryPrivate) => PRIVATE_FRIEND_COOLDOWN_SECS,
+                Err(e) => {
+                    warn!("gc: match history for friend {friend} failed: {e}");
+                    FRIEND_COOLDOWN_SECS
+                }
+            };
+            let now = now_secs();
+            let _ = self.store.set_friend_cooldown(friend, now + cooldown, now);
+        }
+        new_ids
+    }
+}
+
+/// A friend deadlock-api has seen play recently, with what it has stored for them.
+struct ActiveFriend {
+    account_id: u32,
+    latest_match_id: u64,
+    last_end: i64,
+    starts: Vec<i64>,
+}
+
+/// Of `friends`, the ones deadlock-api knows play Deadlock, with their stored history.
+/// Friends whose stored history can't be read are skipped.
+fn active_friends(friends: &[u32]) -> Result<Vec<ActiveFriend>, GcError> {
+    let players = api::recent_players(friends)?;
+    Ok(players
+        .into_iter()
+        .filter_map(|account_id| {
+            let history = api::stored_match_history(account_id)
+                .inspect_err(|e| warn!("gc: stored history for friend {account_id}: {e}"))
+                .ok()?;
+            Some(ActiveFriend {
+                account_id,
+                latest_match_id: history.iter().map(|r| r.match_id).max()?,
+                last_end: history
+                    .iter()
+                    .map(|r| i64::from(r.start_time) + i64::from(r.match_duration_s))
+                    .max()?,
+                starts: history.iter().map(|r| i64::from(r.start_time)).collect(),
+            })
+        })
+        .collect())
 }
 
 /// One-shot: recover salts for every match in each remembered account's own match history
@@ -299,9 +532,7 @@ async fn run_own_account(
     let (history, history_complete) = session.fetch_match_history(account).await?;
     let known = {
         let ids = history.clone();
-        tokio::task::spawn_blocking(move || api::known_match_ids(&ids))
-            .await
-            .map_err(|e| GcError::Api(format!("metadata task panicked: {e}")))??
+        blocking(move || api::known_match_ids(&ids)).await?
     };
     let missing: Vec<u64> = history
         .iter()
