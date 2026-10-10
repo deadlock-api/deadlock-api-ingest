@@ -1,42 +1,41 @@
+use crate::paths;
 use crate::utils::Salts;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock};
 use tracing::warn;
 
 /// Maximum size for the log file before truncating (1GB)
 const MAX_LOG_SIZE: u64 = 1_073_741_824;
 
-/// Name of the log file
-const LOG_FILE_NAME: &str = "fetched-salts.jsonl";
-
 /// Global cache to track successfully ingested salts.
 /// Key is the `match_id`, value is a tuple of `(has_metadata, has_replay)`.
 static INGESTION_CACHE: OnceLock<RwLock<HashMap<u64, (bool, bool)>>> = OnceLock::new();
 
-fn get_log_file_path() -> Option<PathBuf> {
-    // Use platform-specific data directory
-    // Linux: ~/.local/share/deadlock-api-ingest/
-    // macOS: ~/Library/Application Support/deadlock-api-ingest/
-    // Windows: C:\Users\<User>\AppData\Roaming\deadlock-api-ingest\
-    let data_dir = dirs::data_dir()?.join("deadlock-api-ingest");
-
-    // Create directory if it doesn't exist
-    if let Err(e) = std::fs::create_dir_all(&data_dir) {
-        warn!(
-            "Failed to create data directory at {}: {e:?}",
-            data_dir.display()
-        );
-        return None;
-    }
-
-    Some(data_dir.join(LOG_FILE_NAME))
+/// Where a submitted salt came from; recorded in the log for the GUI's stats.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Source {
+    /// Steam's HTTP cache (match opened in-game).
+    Cache,
+    /// Recovered through the Steam Game Coordinator (see `gc`).
+    Gc,
 }
 
-fn append_to_log_file(salt: &Salts) {
-    let Some(log_path) = get_log_file_path() else {
+/// One line of the log file.
+#[derive(Serialize)]
+struct LogEntry<'a> {
+    #[serde(flatten)]
+    salts: &'a Salts,
+    /// Unix seconds.
+    ingested_at: i64,
+    source: Source,
+}
+
+fn append_to_log_file(salt: &Salts, source: Source) {
+    let Some(log_path) = paths::salts_log_path() else {
         warn!("Failed to determine log file path");
         return;
     };
@@ -50,7 +49,12 @@ fn append_to_log_file(salt: &Salts) {
     }
 
     // Serialize the salt to JSON
-    let json_line = match serde_json::to_string(salt) {
+    let entry = LogEntry {
+        salts: salt,
+        ingested_at: crate::utils::now_secs(),
+        source,
+    };
+    let json_line = match serde_json::to_string(&entry) {
         Ok(json) => json,
         Err(e) => {
             warn!("Failed to serialize salt to JSON: {e:?}");
@@ -75,8 +79,8 @@ fn append_to_log_file(salt: &Salts) {
 
 /// Mark a salt as successfully ingested.
 /// This should only be called after successful ingestion.
-pub(crate) fn mark_ingested(salt: &Salts) {
-    append_to_log_file(salt);
+pub(crate) fn mark_ingested(salt: &Salts, source: Source) {
+    append_to_log_file(salt, source);
 
     let cache = INGESTION_CACHE.get_or_init(Default::default);
     let mut cache = cache.write().unwrap_or_else(|poisoned| {
@@ -136,24 +140,30 @@ mod tests {
         assert!(!is_ingested(match_id, false));
 
         // Mark metadata as ingested
-        mark_ingested(&Salts {
-            match_id,
-            cluster_id: None,
-            metadata_salt: Some(0),
-            replay_salt: None,
-            username: None,
-        });
+        mark_ingested(
+            &Salts {
+                match_id,
+                cluster_id: None,
+                metadata_salt: Some(0),
+                replay_salt: None,
+                username: None,
+            },
+            Source::Cache,
+        );
         assert!(is_ingested(match_id, true));
         assert!(!is_ingested(match_id, false));
 
         // Mark replay as ingested
-        mark_ingested(&Salts {
-            match_id,
-            cluster_id: None,
-            metadata_salt: None,
-            replay_salt: Some(0),
-            username: None,
-        });
+        mark_ingested(
+            &Salts {
+                match_id,
+                cluster_id: None,
+                metadata_salt: None,
+                replay_salt: Some(0),
+                username: None,
+            },
+            Source::Cache,
+        );
         assert!(is_ingested(match_id, true));
         assert!(is_ingested(match_id, false));
     }

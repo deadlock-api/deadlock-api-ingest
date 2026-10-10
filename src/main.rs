@@ -1,4 +1,5 @@
-#![forbid(unsafe_code)]
+// Only `console` uses unsafe (Win32 calls), with a local `allow`.
+#![deny(unsafe_code)]
 #![deny(clippy::all)]
 #![deny(unreachable_pub)]
 #![deny(clippy::correctness)]
@@ -11,7 +12,6 @@
 #![allow(clippy::unreadable_literal)]
 
 use std::fs::{File, TryLockError};
-use std::path::PathBuf;
 
 use clap::Parser;
 use tracing::{error, info, warn};
@@ -22,6 +22,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 /// Deadlock API Ingest — uploads match data from Steam's HTTP cache.
 #[derive(Parser)]
 #[command(version)]
+#[allow(clippy::struct_excessive_bools)] // clap flags
 struct Args {
     /// Disable Steam Game Coordinator match-salt recovery
     #[arg(long)]
@@ -35,6 +36,19 @@ struct Args {
     #[arg(long, conflicts_with_all = ["once", "no_gc", "command"])]
     own_matches: bool,
 
+    /// Open the status window; installs and starts the background service if it isn't running
+    #[arg(long, conflicts_with_all = ["once", "no_gc", "own_matches", "install", "uninstall", "command"])]
+    gui: bool,
+
+    /// Install for the current user (Windows): copy to %LOCALAPPDATA%, add shortcuts and an
+    /// uninstall entry, then open the status window. Implied when the exe is named `*-setup.exe`
+    #[arg(long, conflicts_with_all = ["once", "no_gc", "own_matches", "uninstall", "command"])]
+    install: bool,
+
+    /// Remove what --install set up (Windows); keeps logs and fetched-salts.jsonl
+    #[arg(long, conflicts_with_all = ["once", "no_gc", "own_matches", "command"])]
+    uninstall: bool,
+
     /// Game command to wrap (launch wrapper mode).
     /// When provided, the watcher runs in the background while the game
     /// runs as a child process, and exits when the game exits.
@@ -43,42 +57,49 @@ struct Args {
     command: Vec<String>,
 }
 
+mod console;
 mod error;
 mod gc;
+mod gui;
 mod ingestion_cache;
+mod install;
+mod paths;
 mod scan_cache;
+mod service;
 mod steam_user;
+mod update;
 mod utils;
 
-/// Returns the directory for log files.
-/// - Linux: `~/.local/share/deadlock-api-ingest/logs/`
-/// - macOS: `~/Library/Application Support/deadlock-api-ingest/logs/`
-/// - Windows: `C:\Users\<User>\AppData\Roaming\deadlock-api-ingest\logs\`
-fn get_log_dir() -> Option<PathBuf> {
-    let log_dir = dirs::data_dir()?.join("deadlock-api-ingest").join("logs");
-    std::fs::create_dir_all(&log_dir).ok()?;
-    Some(log_dir)
-}
-
-fn init_tracing() {
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or(EnvFilter::new("debug,reqwest=warn,rustls=warn"));
+/// `log_to_file` is off for the GUI and installer: the daily log files belong to the
+/// watcher, which is what people look at when debugging uploads.
+fn init_tracing(log_to_file: bool) {
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        // The GUI's own dependencies (winit, cosmic-text, …) are very chatty at debug.
+        EnvFilter::new(if log_to_file {
+            "debug,reqwest=warn,rustls=warn"
+        } else {
+            "info"
+        })
+    });
     let stdout_layer = tracing_subscriber::fmt::layer();
 
-    let file_layer = get_log_dir().and_then(|log_dir| {
-        tracing_appender::rolling::RollingFileAppender::builder()
-            .rotation(tracing_appender::rolling::Rotation::DAILY)
-            .filename_prefix("deadlock-api-ingest")
-            .filename_suffix("log")
-            .max_log_files(7)
-            .build(&log_dir)
-            .ok()
-            .map(|appender| {
-                tracing_subscriber::fmt::layer()
-                    .with_writer(appender)
-                    .with_ansi(false)
-            })
-    });
+    let file_layer = log_to_file
+        .then(paths::log_dir)
+        .flatten()
+        .and_then(|log_dir| {
+            tracing_appender::rolling::RollingFileAppender::builder()
+                .rotation(tracing_appender::rolling::Rotation::DAILY)
+                .filename_prefix("deadlock-api-ingest")
+                .filename_suffix("log")
+                .max_log_files(7)
+                .build(&log_dir)
+                .ok()
+                .map(|appender| {
+                    tracing_subscriber::fmt::layer()
+                        .with_writer(appender)
+                        .with_ansi(false)
+                })
+        });
 
     tracing_subscriber::registry()
         .with(stdout_layer)
@@ -92,22 +113,27 @@ fn init_tracing() {
 /// copy, and the copies fight over the GC quota store. Exits if another instance holds it;
 /// returns `None` (and runs unlocked) if the lock file itself can't be set up.
 fn acquire_instance_lock() -> Option<File> {
-    let dir = dirs::data_dir()?.join("deadlock-api-ingest");
-    let lock = std::fs::create_dir_all(&dir)
-        .and_then(|()| File::create(dir.join("instance.lock")))
+    let lock = paths::instance_lock_path()
+        .map(File::create)?
         .inspect_err(|e| warn!("Cannot create instance lock, running without it: {e}"))
         .ok()?;
-    match lock.try_lock() {
-        Ok(()) => Some(lock),
-        Err(TryLockError::WouldBlock) => {
-            info!("Another deadlock-api-ingest instance is already running, exiting.");
-            std::process::exit(0);
-        }
-        Err(TryLockError::Error(e)) => {
-            warn!("Cannot acquire instance lock, running without it: {e}");
-            None
+    // The GUI briefly takes the lock to check whether a watcher is running; don't mistake
+    // such a probe for another instance.
+    for attempt in 1..=5 {
+        match lock.try_lock() {
+            Ok(()) => return Some(lock),
+            Err(TryLockError::WouldBlock) if attempt < 5 => {
+                std::thread::sleep(core::time::Duration::from_millis(200));
+            }
+            Err(TryLockError::WouldBlock) => break,
+            Err(TryLockError::Error(e)) => {
+                warn!("Cannot acquire instance lock, running without it: {e}");
+                return None;
+            }
         }
     }
+    info!("Another deadlock-api-ingest instance is already running, exiting.");
+    std::process::exit(0);
 }
 
 fn run_launch_wrapper<F: FnOnce() + Send + 'static>(background_work: F, command: &[String]) -> i32 {
@@ -129,11 +155,24 @@ fn run_launch_wrapper<F: FnOnce() + Send + 'static>(background_work: F, command:
 }
 
 fn main() {
-    init_tracing();
-
     let args = Args::parse();
+    let setup = args.install || install::launched_as_setup();
+    let windowed = args.gui || setup || args.uninstall;
+    init_tracing(!windowed);
 
-    if let Some(log_dir) = get_log_dir() {
+    if windowed {
+        console::hide_own_console();
+        let exit_code = if args.gui {
+            gui::run()
+        } else if setup {
+            install::run_install()
+        } else {
+            install::run_uninstall()
+        };
+        std::process::exit(exit_code);
+    }
+
+    if let Some(log_dir) = paths::log_dir() {
         info!("Log files are being written to: {}", log_dir.display());
     }
 
@@ -143,9 +182,12 @@ fn main() {
 
     // Only the long-running watcher is single-instance: `--once` is a short manual run, and
     // the launch wrapper must always start the game even if the autostart copy is running.
-    let _instance_lock = (args.command.is_empty() && !args.once)
-        .then(acquire_instance_lock)
-        .flatten();
+    let watcher = args.command.is_empty() && !args.once;
+    let _instance_lock = watcher.then(acquire_instance_lock).flatten();
+    if watcher {
+        // Started by autostart or a shortcut, the watcher shouldn't leave a console open.
+        console::hide_own_console();
+    }
 
     let Ok(steam_dir) = steamlocate::SteamDir::locate() else {
         error!("Could not find Steam directory. Waiting 30s before exiting.");

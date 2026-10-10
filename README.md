@@ -17,6 +17,16 @@ The application scans Steam's local HTTP cache directory (`Steam/appcache/httpca
 - [DeepWiki Documentation](https://deepwiki.com/deadlock-api/deadlock-api-ingest)
 ## Quick Installation
 
+### Windows (Installer)
+
+Download [`deadlock-api-ingest-setup.exe`](https://github.com/deadlock-api/deadlock-api-ingest/releases/latest/download/deadlock-api-ingest-setup.exe) and run it. No admin rights or PowerShell needed:
+
+- It installs to `%LOCALAPPDATA%\deadlock-api-ingest\`, starts automatically when you sign in, and adds a "Deadlock API Ingest" Start menu and desktop shortcut.
+- When it finishes, the status window opens (see [Status Window](#status-window)).
+- To remove it, use **Settings → Apps → Installed apps**.
+
+> If Windows SmartScreen says it protected your PC, click **More info**, then **Run anyway**.
+
 ### Windows (PowerShell)
 
 Run this command in PowerShell:
@@ -145,6 +155,20 @@ systemd.user.services.deadlock-api-ingest = {
 
 Then enable: `systemctl --user enable --now deadlock-api-ingest`
 
+## Status Window
+
+```bash
+deadlock-api-ingest --gui
+```
+
+This opens a small window that shows:
+
+- whether the background tool is running
+- how many matches it has submitted (in total, in the last 24 hours and in the last 7 days)
+- the most recent matches
+
+If the background tool isn't running, the window sets it up and starts it: a systemd user service on Linux, a per-user autostart entry on Windows. The window itself never uploads anything, so closing it changes nothing.
+
 ## Steam Launch Option (Alternative to Background Service)
 
 Instead of running the ingest service as a persistent background process, you can configure it to run only while Deadlock is active by using Steam's launch options. The service will start when you launch the game and automatically stop when the game exits.
@@ -168,6 +192,8 @@ Instead of running the ingest service as a persistent background process, you ca
 ## Uninstallation
 
 ### Windows
+
+If you installed with `deadlock-api-ingest-setup.exe`, remove it under **Settings → Apps → Installed apps**. Otherwise run:
 
 ```powershell
 & "$env:LOCALAPPDATA\deadlock-api-ingest\uninstall-windows.ps1"

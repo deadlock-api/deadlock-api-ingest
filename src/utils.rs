@@ -1,4 +1,5 @@
 use crate::error::Error;
+use crate::ingestion_cache::{self, Source};
 use core::time::Duration;
 use serde::Serialize;
 use std::sync::OnceLock;
@@ -7,6 +8,24 @@ use tracing::debug;
 use ureq::Error::StatusCode;
 
 static HTTP_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
+static TIMEOUT_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
+
+/// Shared agent for requests that must not hang (GC API lookups, update checks).
+pub(crate) fn http_client() -> &'static ureq::Agent {
+    TIMEOUT_CLIENT.get_or_init(|| {
+        ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(30)))
+            .build()
+            .new_agent()
+    })
+}
+
+pub(crate) fn now_secs() -> i64 {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    i64::try_from(secs).unwrap_or(i64::MAX)
+}
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct Salts {
@@ -70,7 +89,8 @@ impl Salts {
         }
     }
 
-    pub(crate) fn ingest(&self) -> Result<(), Error> {
+    /// POSTs the salts and, on success, records them (see `ingestion_cache`).
+    pub(crate) fn ingest(&self, source: Source) -> Result<(), Error> {
         if self.match_id > 10000000000 {
             return Err(Error::MatchIdTooLarge);
         }
@@ -86,7 +106,10 @@ impl Salts {
                 .post("https://api.deadlock-api.com/v1/matches/salts")
                 .send_json([self]);
             match response {
-                Ok(r) if r.status().is_success() => return Ok(()),
+                Ok(r) if r.status().is_success() => {
+                    ingestion_cache::mark_ingested(self, source);
+                    return Ok(());
+                }
                 Ok(mut resp) if attempt == max_retries => {
                     let text = resp.body_mut().read_to_string().unwrap_or_default();
                     return Err(Error::FailedToIngest(text));
@@ -99,7 +122,7 @@ impl Salts {
         }
     }
 
-    pub(crate) fn ingest_many(salts: &[Salts]) -> Result<(), Error> {
+    pub(crate) fn ingest_many(salts: &[Salts], source: Source) -> Result<(), Error> {
         let max_retries = 10;
         let num_salts = salts.len();
         let mut attempt = 0;
@@ -116,7 +139,12 @@ impl Salts {
                 .post("https://api.deadlock-api.com/v1/matches/salts")
                 .send_json(salts);
             match response {
-                Ok(r) if r.status().is_success() => return Ok(()),
+                Ok(r) if r.status().is_success() => {
+                    for salt in salts {
+                        ingestion_cache::mark_ingested(salt, source);
+                    }
+                    return Ok(());
+                }
                 Ok(mut resp) if attempt == max_retries => {
                     let text = resp.body_mut().read_to_string().unwrap_or_default();
                     return Err(Error::FailedToIngest(text));

@@ -483,6 +483,9 @@ main() {
         fi
     fi
 
+    # App-menu entry for the status window, which shows the matches that were submitted.
+    create_desktop_shortcut "$final_executable_path" "--gui" "Deadlock API Ingest Status" "Shows the matches Deadlock API Ingest has submitted" || true
+
     log "SUCCESS" "🚀 Deadlock API Ingest has been installed successfully!"
 
     # The final messages should also be sent to stderr to not interfere with any potential scripting.

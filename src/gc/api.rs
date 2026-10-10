@@ -2,9 +2,7 @@
 //! are already known, and the stored activity of the user's friends. Salts are posted via [`crate::utils::Salts::ingest`]. Blocking
 //! `ureq`, matching the rest of the crate; called from `spawn_blocking` inside the async pass.
 
-use core::time::Duration;
 use std::collections::HashSet;
-use std::sync::OnceLock;
 
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -17,16 +15,7 @@ const METADATA_CHUNK: usize = 100;
 const PLAYERS_STEAM_URL: &str = "https://api.deadlock-api.com/v1/players/steam";
 const PLAYERS_STEAM_CHUNK: usize = 1000;
 
-static HTTP_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
-
-fn client() -> &'static ureq::Agent {
-    HTTP_CLIENT.get_or_init(|| {
-        ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(30)))
-            .build()
-            .new_agent()
-    })
-}
+use crate::utils::http_client as client;
 
 /// Send `req` and parse its JSON body; `what` names the endpoint in errors. deadlock-api
 /// answers 404 for queries that match nothing, so that reads as an empty `T`.

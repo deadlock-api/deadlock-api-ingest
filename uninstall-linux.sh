@@ -99,11 +99,13 @@ fi
 # Remove desktop shortcuts
 echo -e "${CYAN}Removing desktop shortcuts...${NC}"
 if [[ -f "$HOME/.local/share/applications/$APP_NAME.desktop" ]] || \
-   [[ -f "$HOME/.local/share/applications/$APP_NAME-once.desktop" ]]; then
+   [[ -f "$HOME/.local/share/applications/$APP_NAME-once.desktop" ]] || \
+   [[ -f "$HOME/.local/share/applications/$APP_NAME-status.desktop" ]]; then
     echo -e "  ${GRAY}- Removing desktop entries${NC}"
 fi
 rm -f "$HOME/.local/share/applications/$APP_NAME.desktop"
 rm -f "$HOME/.local/share/applications/$APP_NAME-once.desktop"
+rm -f "$HOME/.local/share/applications/$APP_NAME-status.desktop"
 
 # Remove installation and symlink
 echo -e "${CYAN}Removing installation files...${NC}"

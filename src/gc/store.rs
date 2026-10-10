@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::fs::{File, TryLockError};
 use std::io::ErrorKind;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -20,12 +19,7 @@ use super::quota::{
 const STORE_FILE: &str = "gc-quota.json";
 const LOCK_FILE: &str = "gc-quota.lock";
 
-pub(crate) fn now_secs() -> i64 {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    i64::try_from(secs).unwrap_or(i64::MAX)
-}
+pub(crate) use crate::utils::now_secs;
 
 #[derive(Default, Serialize, Deserialize)]
 struct AccountState {

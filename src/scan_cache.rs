@@ -96,14 +96,8 @@ pub(super) fn initial_cache_dir_ingest(cache_dir: &Path) {
         return;
     }
 
-    match Salts::ingest_many(&salts) {
-        Ok(..) => {
-            // Mark all salts as successfully ingested in the shared cache
-            for salt in &salts {
-                ingestion_cache::mark_ingested(salt);
-            }
-        }
-        Err(e) => warn!("Failed to ingest salts: {e:?}"),
+    if let Err(e) = Salts::ingest_many(&salts, ingestion_cache::Source::Cache) {
+        warn!("Failed to ingest salts: {e:?}");
     }
 }
 
@@ -137,11 +131,8 @@ pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
                     continue;
                 }
 
-                match salts.ingest() {
-                    Ok(..) => {
-                        info!("Ingested salts: {salts:?}");
-                        ingestion_cache::mark_ingested(&salts);
-                    }
+                match salts.ingest(ingestion_cache::Source::Cache) {
+                    Ok(()) => info!("Ingested salts: {salts:?}"),
                     Err(e) => warn!("Failed to ingest salts: {e:?}"),
                 }
             }
