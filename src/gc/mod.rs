@@ -37,6 +37,7 @@ use error::GcError;
 use quota::QuotaWindow;
 use store::{GcStore, now_secs};
 
+use crate::ingestion_cache::Source;
 use crate::utils::Salts;
 
 // GetMatchMetaData is rate-limited per-account by Steam's GC. A faster cadence trips
@@ -100,11 +101,9 @@ fn runtime() -> Option<tokio::runtime::Runtime> {
 }
 
 /// POST one match's salts; failures are logged and reported as `false`.
-async fn post(salts: Salts) -> bool {
+async fn post(salts: Salts, source: Source) -> bool {
     let match_id = salts.match_id;
-    match tokio::task::spawn_blocking(move || salts.ingest(crate::ingestion_cache::Source::Gc))
-        .await
-    {
+    match tokio::task::spawn_blocking(move || salts.ingest(source)).await {
         Ok(Ok(())) => true,
         Ok(Err(e)) => {
             warn!("gc: salt POST failed for {match_id}: {e}");
@@ -327,7 +326,7 @@ impl AccountRun<'_> {
                 warn!("gc: {e}");
                 break;
             }
-            if post(salts).await {
+            if post(salts, Source::Gc).await {
                 fetched += 1;
             }
         }
@@ -592,7 +591,7 @@ async fn run_own_account(
             }
         };
         done.insert(match_id);
-        if post(salts).await {
+        if post(salts, Source::Own).await {
             info!(
                 "gc: ingested match {match_id} ({}/{})",
                 i + 1,

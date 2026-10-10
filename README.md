@@ -164,8 +164,10 @@ deadlock-api-ingest --gui
 This opens a small window that shows:
 
 - whether the background tool is running
-- how many matches it has submitted (in total, in the last 24 hours and in the last 7 days)
-- the most recent matches
+- how many of your matches it has submitted (in total, in the last 24 hours and in the last 7 days)
+- your most recent matches
+
+Only your own matches are counted: those from your Steam cache, and your match history recovered with `--own-matches`. Matches the tool fetches for other players through the Steam Game Coordinator are not shown.
 
 If the background tool isn't running, the window sets it up and starts it: a systemd user service on Linux, a per-user autostart entry on Windows. The window itself never uploads anything, so closing it changes nothing.
 

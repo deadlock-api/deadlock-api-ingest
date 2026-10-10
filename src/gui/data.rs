@@ -32,7 +32,7 @@ pub(crate) struct MatchRow {
     pub(crate) match_id: u64,
     pub(crate) metadata: bool,
     pub(crate) replay: bool,
-    pub(crate) via_gc: bool,
+    pub(crate) via_steam: bool,
     pub(crate) ingested_at: Option<i64>,
 }
 
@@ -41,7 +41,7 @@ pub(crate) struct Stats {
     pub(crate) total: usize,
     pub(crate) last_day: usize,
     pub(crate) last_week: usize,
-    pub(crate) via_gc: usize,
+    pub(crate) via_steam: usize,
     pub(crate) last_ingested_at: Option<i64>,
 }
 
@@ -62,7 +62,7 @@ pub(crate) struct Tracker {
     seen: HashSet<u64>,
     /// When each distinct match was first submitted, where known.
     first_seen: Vec<i64>,
-    via_gc: usize,
+    via_steam: usize,
     last_ingested_at: Option<i64>,
     /// Newest first.
     recent: VecDeque<MatchRow>,
@@ -88,7 +88,7 @@ impl Tracker {
             total: self.seen.len(),
             last_day: since(DAY_SECS),
             last_week: since(7 * DAY_SECS),
-            via_gc: self.via_gc,
+            via_steam: self.via_steam,
             last_ingested_at: self.last_ingested_at,
         }
     }
@@ -124,10 +124,14 @@ impl Tracker {
     }
 
     fn add(&mut self, entry: &Entry) {
-        let via_gc = entry.source == Some(Source::Gc);
+        // Other players' matches fetched through the GC: not the user's, not shown here.
+        if entry.source == Some(Source::Gc) {
+            return;
+        }
+        let via_steam = entry.source == Some(Source::Own);
         if self.seen.insert(entry.match_id) {
             self.first_seen.extend(entry.ingested_at);
-            self.via_gc += usize::from(via_gc);
+            self.via_steam += usize::from(via_steam);
         }
         if entry.ingested_at > self.last_ingested_at {
             self.last_ingested_at = entry.ingested_at;
@@ -145,7 +149,7 @@ impl Tracker {
         });
         row.metadata |= entry.metadata_salt.is_some();
         row.replay |= entry.replay_salt.is_some();
-        row.via_gc |= via_gc;
+        row.via_steam |= via_steam;
         row.ingested_at = entry.ingested_at.or(row.ingested_at);
         self.recent.push_front(row);
         self.recent.truncate(RECENT_MATCHES);
@@ -186,13 +190,19 @@ mod tests {
         writeln!(file, r#""ingested_at":{now},"source":"cache"}}"#).unwrap();
         writeln!(
             file,
-            r#"{{"match_id":2,"metadata_salt":null,"replay_salt":7,"ingested_at":{now},"source":"gc"}}"#
+            r#"{{"match_id":2,"metadata_salt":null,"replay_salt":7,"ingested_at":{now},"source":"own"}}"#
         )
         .unwrap();
         writeln!(
             file,
-            r#"{{"match_id":3,"metadata_salt":1,"replay_salt":null,"ingested_at":{},"source":"gc"}}"#,
+            r#"{{"match_id":3,"metadata_salt":1,"replay_salt":null,"ingested_at":{},"source":"own"}}"#,
             now - 3 * DAY_SECS
+        )
+        .unwrap();
+        // Another player's match fetched through the GC: ignored entirely.
+        writeln!(
+            file,
+            r#"{{"match_id":4,"metadata_salt":1,"replay_salt":null,"ingested_at":{now},"source":"gc"}}"#
         )
         .unwrap();
         file.flush().unwrap();
@@ -204,7 +214,7 @@ mod tests {
                 total: 3,
                 last_day: 1,
                 last_week: 2,
-                via_gc: 1,
+                via_steam: 1,
                 last_ingested_at: Some(now),
             }
         );
@@ -212,7 +222,7 @@ mod tests {
         let ids: Vec<u64> = tracker.recent.iter().map(|r| r.match_id).collect();
         assert_eq!(ids, [3, 2, 1]);
         let two = &tracker.recent[1];
-        assert!(two.metadata && two.replay && two.via_gc);
+        assert!(two.metadata && two.replay && two.via_steam);
 
         // Truncation (size cap) starts over.
         File::create(&path).unwrap();
