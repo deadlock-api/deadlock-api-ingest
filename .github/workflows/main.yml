@@ -47,6 +47,10 @@ jobs:
   audit:
     name: Audit
     runs-on: ubuntu-latest
+    # rustsec/audit-check reports warnings (e.g. yanked crates) as a check run.
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@v5
       - name: Update Rust toolchain to stable
