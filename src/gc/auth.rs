@@ -174,8 +174,9 @@ fn connect_cache_blob(vdf: &Vdf, account: &str) -> Result<Vec<u8>, GcError> {
 #[cfg(not(windows))]
 fn decrypt_blob(blob: &[u8], account: &str) -> Result<String, GcError> {
     use aes::Aes256;
-    use aes::cipher::generic_array::GenericArray;
-    use aes::cipher::{BlockDecrypt, BlockDecryptMut, KeyInit, KeyIvInit, block_padding::Pkcs7};
+    use aes::cipher::{
+        BlockCipherDecrypt, BlockModeDecrypt, KeyInit, KeyIvInit, block_padding::Pkcs7,
+    };
     use sha2::{Digest, Sha256};
 
     if blob.len() < 32 {
@@ -186,12 +187,13 @@ fn decrypt_blob(blob: &[u8], account: &str) -> Result<String, GcError> {
     // The first block is the real IV, encrypted with AES-256-ECB.
     let cipher =
         Aes256::new_from_slice(key.as_slice()).map_err(|e| err(format!("aes key error: {e}")))?;
-    let mut iv = GenericArray::clone_from_slice(&blob[0..16]);
+    let mut iv =
+        aes::Block::try_from(&blob[0..16]).map_err(|e| err(format!("aes iv error: {e}")))?;
     cipher.decrypt_block(&mut iv);
 
     let plaintext = cbc::Decryptor::<Aes256>::new_from_slices(key.as_slice(), iv.as_slice())
         .map_err(|e| err(format!("aes iv error: {e}")))?
-        .decrypt_padded_vec_mut::<Pkcs7>(&blob[16..])
+        .decrypt_padded_vec::<Pkcs7>(&blob[16..])
         .map_err(|e| err(format!("aes decrypt failed: {e}")))?;
 
     String::from_utf8(plaintext).map_err(|e| err(format!("token is not valid UTF-8: {e}")))
