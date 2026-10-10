@@ -5,7 +5,7 @@
 
 use core::future::Future;
 use core::time::Duration;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use futures_util::StreamExt as _;
 use prost::Message as _;
@@ -136,9 +136,12 @@ impl GcSession {
             return personas;
         }
 
+        // Steam also pushes updates for friends we didn't ask about; only the requested
+        // ones count towards being done.
+        let mut pending: HashSet<u32> = account_ids.iter().copied().collect();
         let now = now_secs();
         let deadline = tokio::time::Instant::now() + PERSONA_WAIT;
-        while personas.len() < account_ids.len() {
+        while !pending.is_empty() {
             let msg = match tokio::time::timeout_at(deadline, updates.next()).await {
                 Ok(Some(Ok(msg))) => msg,
                 Ok(Some(Err(e))) => {
@@ -148,7 +151,12 @@ impl GcSession {
                 Ok(None) | Err(_) => break,
             };
             for f in msg.friends {
-                let Some(id) = f.friendid else { continue };
+                let Some(id) = f.friendid.map(account_id_of) else {
+                    continue;
+                };
+                if !pending.remove(&id) {
+                    continue;
+                }
                 let online = f.persona_state.is_some_and(|s| s != 0);
                 let last_seen = if online {
                     Some(now)
@@ -161,7 +169,7 @@ impl GcSession {
                         .map(i64::from)
                 };
                 personas.insert(
-                    account_id_of(id),
+                    id,
                     Persona {
                         in_deadlock: f.game_played_app_id == Some(DEADLOCK_APP_ID),
                         last_seen,
