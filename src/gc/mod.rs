@@ -102,7 +102,9 @@ fn runtime() -> Option<tokio::runtime::Runtime> {
 /// POST one match's salts; failures are logged and reported as `false`.
 async fn post(salts: Salts) -> bool {
     let match_id = salts.match_id;
-    match tokio::task::spawn_blocking(move || salts.ingest()).await {
+    match tokio::task::spawn_blocking(move || salts.ingest(crate::ingestion_cache::Source::Gc))
+        .await
+    {
         Ok(Ok(())) => true,
         Ok(Err(e)) => {
             warn!("gc: salt POST failed for {match_id}: {e}");

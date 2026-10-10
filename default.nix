@@ -6,6 +6,10 @@
   openssl,
   stdenv,
   darwin,
+  makeWrapper,
+  libxkbcommon,
+  wayland,
+  xorg,
   src,
 }:
 
@@ -21,6 +25,7 @@ naersk-lib.buildPackage {
   nativeBuildInputs = [
     pkg-config
     protobuf
+    makeWrapper
   ];
 
   buildInputs = [
@@ -29,6 +34,21 @@ naersk-lib.buildPackage {
     darwin.apple_sdk.frameworks.Security
     darwin.apple_sdk.frameworks.SystemConfiguration
   ];
+
+  # `--gui` (winit) dlopens the windowing libraries at runtime.
+  postInstall = lib.optionalString stdenv.isLinux ''
+    wrapProgram $out/bin/deadlock-api-ingest \
+      --prefix LD_LIBRARY_PATH : ${
+        lib.makeLibraryPath [
+          libxkbcommon
+          wayland
+          xorg.libX11
+          xorg.libXcursor
+          xorg.libXi
+          xorg.libXrandr
+        ]
+      }
+  '';
 
   # naersk runs tests by default
   # doCheck = true;

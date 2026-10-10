@@ -135,6 +135,38 @@ jobs:
       - name: Run tests
         run: cargo test --locked
 
+  windows-smoke:
+    name: Windows Smoke Test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "build-cache-${{ runner.os }}-${{ runner.arch }}-stable"
+          key: "x86_64-pc-windows-gnu"
+      - name: Update Rust toolchain
+        run: |
+          rustup override set stable
+          rustup update stable
+          rustup target add x86_64-pc-windows-gnu
+      - name: Build release binary
+        run: cargo build --locked --release --target x86_64-pc-windows-gnu
+      - name: Installer, status window and console flash
+        shell: pwsh
+        run: .github/scripts/windows-smoke.ps1 -Exe target/x86_64-pc-windows-gnu/release/deadlock-api-ingest.exe -OutDir windows-smoke
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: windows-smoke-screenshots
+          path: windows-smoke
+          retention-days: 7
+
   shellcheck-installer:
     name: Shellcheck Installer Script
     runs-on: ubuntu-latest
@@ -157,7 +189,7 @@ jobs:
 
   build:
     name: Build
-    needs: [ fmt, deps, audit, typos, lint, test, shellcheck-installer, powershell-analyzer ]
+    needs: [ fmt, deps, audit, typos, lint, test, windows-smoke, shellcheck-installer, powershell-analyzer ]
     strategy:
       fail-fast: false
       matrix:
@@ -223,12 +255,21 @@ jobs:
         if: matrix.platform == 'windows-latest'
         run: |
           copy target\${{ matrix.target }}\release\${{ matrix.binary_name }} ${{ matrix.asset_name }}
-          dir ${{ matrix.asset_name }}
+          # Same exe; the "-setup" name makes it install itself when double-clicked
+          copy target\${{ matrix.target }}\release\${{ matrix.binary_name }} deadlock-api-ingest-setup.exe
+          Get-Item ${{ matrix.asset_name }}, deadlock-api-ingest-setup.exe
       - name: Upload build artifact
         uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.asset_name }}
           path: ${{ matrix.asset_name }}
+          retention-days: 1
+      - name: Upload Windows installer artifact
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@v5
+        with:
+          name: deadlock-api-ingest-setup.exe
+          path: deadlock-api-ingest-setup.exe
           retention-days: 1
 
   build-cache-nix:
@@ -325,6 +366,9 @@ jobs:
             ${{ needs.build.outputs.is_prerelease == 'true' && 'Nightly - ' || '' }}Deadlock API Ingest ${{ needs.build.outputs.version }}
           body: |
             ## Installation
+
+            **Windows (recommended):**
+            Download and run [deadlock-api-ingest-setup.exe](https://github.com/deadlock-api/deadlock-api-ingest/releases/download/${{ needs.build.outputs.version }}/deadlock-api-ingest-setup.exe). No admin rights needed.
 
             **Windows (PowerShell - Run as Administrator):**
             Open a Powershell window as an administrator and run the following command:

@@ -577,6 +577,12 @@ try {
         Write-Host ""
     }
 
+    # Status window: shows the matches that were submitted
+    New-DesktopShortcut -ExecutablePath $downloadPath `
+        -Arguments "--gui" `
+        -ShortcutName "$AppName (Status)" `
+        -Description "Deadlock API Ingest - Shows the matches that were submitted" | Out-Null
+
 
 }
 catch {

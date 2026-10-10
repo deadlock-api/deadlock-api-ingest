@@ -40,9 +40,18 @@ hex = "0.4"
 base64 = "0.23"
 keyvalues-parser = "0.2"
 
+# `--gui` status window. tiny-skia (software rendering) keeps it free of GPU dependencies.
+iced = { version = "0.14", default-features = false, features = ["tiny-skia", "x11", "wayland", "tokio"] }
+
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.56.0"
 windows-dpapi = "0.2.0"
+mslnk = "0.1.8"
+windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
 winres = "0.1"
+
+[profile.release]
+# Debug symbols are most of the MinGW exe (52 MB -> 31 MB); users only download it.
+strip = true
