@@ -135,38 +135,6 @@ jobs:
       - name: Run tests
         run: cargo test --locked
 
-  windows-smoke:
-    name: Windows Smoke Test
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "build-cache-${{ runner.os }}-${{ runner.arch }}-stable"
-          key: "x86_64-pc-windows-gnu"
-      - name: Update Rust toolchain
-        run: |
-          rustup override set stable
-          rustup update stable
-          rustup target add x86_64-pc-windows-gnu
-      - name: Build release binary
-        run: cargo build --locked --release --target x86_64-pc-windows-gnu
-      - name: Installer, status window and console flash
-        shell: pwsh
-        run: .github/scripts/windows-smoke.ps1 -Exe target/x86_64-pc-windows-gnu/release/deadlock-api-ingest.exe -OutDir windows-smoke
-      - name: Upload screenshots
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: windows-smoke-screenshots
-          path: windows-smoke
-          retention-days: 7
-
   shellcheck-installer:
     name: Shellcheck Installer Script
     runs-on: ubuntu-latest
@@ -189,7 +157,7 @@ jobs:
 
   build:
     name: Build
-    needs: [ fmt, deps, audit, typos, lint, test, windows-smoke, shellcheck-installer, powershell-analyzer ]
+    needs: [ fmt, deps, audit, typos, lint, test, shellcheck-installer, powershell-analyzer ]
     strategy:
       fail-fast: false
       matrix:
@@ -272,6 +240,31 @@ jobs:
           path: deadlock-api-ingest-setup.exe
           retention-days: 1
 
+  windows-smoke:
+    name: Windows Smoke Test
+    # Tests the exact exe that gets released instead of building another one.
+    needs: [ build ]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/scripts
+      - name: Download release exe
+        uses: actions/download-artifact@v6
+        with:
+          name: deadlock-api-ingest-windows-latest.exe
+          path: build
+      - name: Installer, status window and console flash
+        shell: pwsh
+        run: .github/scripts/windows-smoke.ps1 -Exe build/deadlock-api-ingest-windows-latest.exe -OutDir windows-smoke
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: windows-smoke-screenshots
+          path: windows-smoke
+          retention-days: 7
+
   build-cache-nix:
     name: Build & Cache Nix Package
     needs: [ fmt, deps, audit, typos, lint, test, shellcheck-installer, powershell-analyzer ]
@@ -342,7 +335,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: [ build ]
+    needs: [ build, windows-smoke ]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     steps:
