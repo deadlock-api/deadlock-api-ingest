@@ -98,7 +98,7 @@ impl Tracker {
             return;
         };
         if file.metadata().map_or(0, |m| m.len()) < self.offset {
-            // Truncated by the 1 GB size cap; start over.
+            // The watcher dropped the oldest half at its size cap; start over.
             *self = Self::default();
         }
         let mut reader = BufReader::new(file);

@@ -2,13 +2,17 @@ use crate::paths;
 use crate::utils::Salts;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::sync::{OnceLock, RwLock};
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, BufWriter, Seek, SeekFrom, Write};
+use std::path::Path;
+use std::sync::{Mutex, OnceLock, RwLock};
 use tracing::warn;
 
-/// Maximum size for the log file before truncating (1GB)
+/// Size at which the log drops its oldest half (1GB)
 const MAX_LOG_SIZE: u64 = 1_073_741_824;
+
+/// Serializes appends and shrinking: the cache watcher and the GC worker both write the log.
+static LOG_LOCK: Mutex<()> = Mutex::new(());
 
 /// Global cache to track successfully ingested salts.
 /// Key is the `match_id`, value is a tuple of `(has_metadata, has_replay)`.
@@ -34,18 +38,42 @@ struct LogEntry<'a> {
     source: Source,
 }
 
+/// Drops the oldest half of the log, keeping whole lines, so recent history survives the
+/// size cap. Readers following the file (the GUI) see it shrink below their read offset
+/// and start over.
+fn shrink_log(path: &Path, len: u64) -> std::io::Result<()> {
+    let mut old = File::open(path)?;
+    old.seek(SeekFrom::Start(len / 2))?;
+    let mut reader = BufReader::new(old);
+    // Skip the line the cut falls into.
+    reader.read_until(b'\n', &mut Vec::new())?;
+
+    let tmp = path.with_extension("jsonl.tmp");
+    let mut out = BufWriter::new(File::create(&tmp)?);
+    std::io::copy(&mut reader, &mut out)?;
+    out.flush()?;
+    drop(out);
+    std::fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
+}
+
 fn append_to_log_file(salt: &Salts, source: Source) {
     let Some(log_path) = paths::salts_log_path() else {
         warn!("Failed to determine log file path");
         return;
     };
+    let _guard = LOG_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-    // Check file size and truncate if it exceeds 1GB
     if let Ok(metadata) = std::fs::metadata(&log_path)
         && metadata.len() >= MAX_LOG_SIZE
-        && let Err(e) = std::fs::remove_file(&log_path)
+        && let Err(e) = shrink_log(&log_path, metadata.len())
     {
-        warn!("Failed to truncate log file: {e:?}");
+        // Still enforce the cap, at the cost of the history.
+        warn!("Failed to shrink log file, starting a new one: {e:?}");
+        let _ = std::fs::remove_file(&log_path);
     }
 
     // Serialize the salt to JSON
@@ -130,6 +158,25 @@ pub(crate) fn is_ingested(match_id: u64, is_metadata: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_shrink_log_keeps_newest_whole_lines() {
+        let path =
+            std::env::temp_dir().join(format!("deadlock-shrink-test-{}.jsonl", std::process::id()));
+        let content: String = (0..100)
+            .flat_map(|i| [format!("{{\"line\":{i}}}"), "\n".to_owned()])
+            .collect();
+        std::fs::write(&path, &content).unwrap();
+
+        shrink_log(&path, content.len() as u64).unwrap();
+
+        let kept = std::fs::read_to_string(&path).unwrap();
+        assert!(kept.len() <= content.len() / 2);
+        assert!(content.ends_with(&kept), "keeps a suffix of the log");
+        assert!(kept.starts_with("{\"line\":"), "starts on a whole line");
+        assert!(kept.ends_with("{\"line\":99}\n"));
+        let _ = std::fs::remove_file(&path);
+    }
 
     #[test]
     fn test_cache_operations() {
