@@ -353,13 +353,13 @@ fn stat_cards(stats: &Stats, now: i64) -> Element<'static, Message> {
         Some(None) => ("Just now".to_owned(), ""),
         Some(Some(e)) => (e, "ago"),
     };
-    let via_gc = if stats.via_gc > 0 {
-        format!("{} via Steam", stats.via_gc)
+    let via_steam = if stats.via_steam > 0 {
+        format!("{} via Steam", stats.via_steam)
     } else {
         "all time".to_owned()
     };
     row![
-        stat_card("Matches submitted", stats.total.to_string(), via_gc),
+        stat_card("Matches submitted", stats.total.to_string(), via_steam),
         stat_card("Last 24 hours", stats.last_day.to_string(), "matches"),
         stat_card("Last 7 days", stats.last_week.to_string(), "matches"),
         stat_card("Last upload", last, last_hint),
@@ -437,10 +437,10 @@ fn match_row(m: &MatchRow, now: i64) -> Element<'static, Message> {
     if m.replay {
         badges = badges.push(badge("Replay", "The full replay file", false));
     }
-    if m.via_gc {
+    if m.via_steam {
         badges = badges.push(badge(
             "via Steam",
-            "Recovered through your Steam account rather than the game's cache",
+            "One of your matches, recovered through your Steam account",
             true,
         ));
     }

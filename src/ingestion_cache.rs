@@ -24,7 +24,11 @@ static INGESTION_CACHE: OnceLock<RwLock<HashMap<u64, (bool, bool)>>> = OnceLock:
 pub(crate) enum Source {
     /// Steam's HTTP cache (match opened in-game).
     Cache,
-    /// Recovered through the Steam Game Coordinator (see `gc`).
+    /// The user's own match history, recovered through the Steam Game Coordinator
+    /// (`--own-matches`).
+    Own,
+    /// Other players' matches recovered through the Game Coordinator (friends, the
+    /// to-fetch list). Not the user's, so the status window leaves them out.
     Gc,
 }
 
