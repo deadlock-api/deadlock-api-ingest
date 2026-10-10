@@ -200,6 +200,8 @@ create_desktop_shortcut() {
     fi
 
     # Create a safe filename from the shortcut name
+    # The file name is also the app id: Wayland desktops match a window's app_id to the
+    # desktop file name, X11 ones its WM_CLASS to StartupWMClass (set to the same below).
     local safe_name="$file_name"
     if [[ -z "$safe_name" ]]; then
         safe_name=$(echo "$shortcut_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
@@ -224,7 +226,7 @@ Icon=$APP_NAME
 Terminal=false
 Categories=Utility;
 Keywords=deadlock;api;ingest;steam;matches;replay;tracker;statlocker;
-StartupWMClass=$APP_NAME
+StartupWMClass=$safe_name
 EOF
 
     chmod 644 "$desktop_file"
