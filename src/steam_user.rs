@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::sync::OnceLock;
 
-const STEAM_ID_64_IDENT: u64 = 76561197960265728;
+pub(crate) const STEAM_ID_64_IDENT: u64 = 76561197960265728;
 
 static CURRENT_STEAM_ID3: OnceLock<Option<u32>> = OnceLock::new();
 

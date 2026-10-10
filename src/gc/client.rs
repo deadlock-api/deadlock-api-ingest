@@ -24,10 +24,11 @@ use valveprotos::deadlock::{
     c_msg_client_to_gc_get_match_meta_data_response::EResult,
 };
 
-use super::auth::AuthContext;
+use super::auth::{AuthContext, account_id_of};
 use super::error::GcError;
 use super::friends::Persona;
 use super::store::now_secs;
+use crate::steam_user::STEAM_ID_64_IDENT;
 use crate::utils::Salts;
 
 const DEADLOCK_APP_ID: u32 = 1422450;
@@ -39,7 +40,6 @@ const FRIENDS_LIST_WAIT: Duration = Duration::from_secs(5);
 const PERSONA_WAIT: Duration = Duration::from_secs(5);
 const FRIEND_RELATIONSHIP_FRIEND: u32 = 3;
 const PERSONA_FLAGS_STATUS_PRESENCE_LAST_SEEN: u32 = 1 | 16 | 64;
-const STEAM_ID64_INDIVIDUAL_BASE: u64 = 76_561_197_960_265_728;
 
 // A stalled discover/login/job call must not hang the pass indefinitely.
 const GC_CALL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -73,7 +73,7 @@ fn friend_account_ids(list: &CMsgClientFriendsList) -> Vec<u32> {
         .filter_map(|f| f.ulfriendid)
         // SteamID64 bits 52..56 hold the account type; 1 = individual.
         .filter(|id| (id >> 52) & 0xF == 1)
-        .map(|id| (id & 0xFFFF_FFFF) as u32)
+        .map(account_id_of)
         .collect()
 }
 
@@ -129,7 +129,7 @@ impl GcSession {
         req.persona_state_requested = Some(PERSONA_FLAGS_STATUS_PRESENCE_LAST_SEEN);
         req.friends = account_ids
             .iter()
-            .map(|&id| STEAM_ID64_INDIVIDUAL_BASE + u64::from(id))
+            .map(|&id| STEAM_ID_64_IDENT + u64::from(id))
             .collect();
         if let Err(e) = with_timeout("persona request", self.conn.send(req)).await {
             warn!("gc: {e}");
@@ -161,7 +161,7 @@ impl GcSession {
                         .map(i64::from)
                 };
                 personas.insert(
-                    (id & 0xFFFF_FFFF) as u32,
+                    account_id_of(id),
                     Persona {
                         in_deadlock: f.game_played_app_id == Some(DEADLOCK_APP_ID),
                         last_seen,
@@ -175,11 +175,23 @@ impl GcSession {
     /// The match ids on the newest page of `account_id`'s history. One request, so it costs
     /// a single unit of the caller's history quota.
     pub(crate) async fn fetch_recent_matches(&self, account_id: u32) -> Result<Vec<u64>, GcError> {
+        let page = self.history_page(account_id, None).await?;
+        Ok(page.matches.iter().filter_map(|m| m.match_id).collect())
+    }
+
+    /// One `GetMatchHistory` page, older than `cursor` if given. Non-success results are
+    /// errors: rate limits as `GcRateLimited`, private histories as `HistoryPrivate`.
+    async fn history_page(
+        &self,
+        account_id: u32,
+        cursor: Option<u64>,
+    ) -> Result<CMsgClientToGcGetMatchHistoryResponse, GcError> {
         use c_msg_client_to_gc_get_match_history_response::EResult as HistoryResult;
 
         let kind = MsgKind(EgcCitadelClientMessages::KEMsgClientToGcGetMatchHistory as i32);
         let req = CMsgClientToGcGetMatchHistory {
             account_id: Some(account_id),
+            continue_cursor: cursor,
             ..Default::default()
         };
         let raw = self
@@ -187,21 +199,15 @@ impl GcSession {
             .await?;
         let resp = CMsgClientToGcGetMatchHistoryResponse::decode(raw.data.as_ref())
             .map_err(|e| GcError::GcUnavailable(format!("bad match history response: {e}")))?;
-        match resp.result {
-            Some(r) if r == HistoryResult::KEResultSuccess as i32 => {}
-            Some(r) if r == HistoryResult::KEResultRateLimited as i32 => {
-                return Err(GcError::GcRateLimited);
-            }
+        let err = match resp.result {
+            Some(r) if r == HistoryResult::KEResultSuccess as i32 => return Ok(resp),
+            Some(r) if r == HistoryResult::KEResultRateLimited as i32 => GcError::GcRateLimited,
             Some(r) if r == HistoryResult::KEResultInvalidPermission as i32 => {
-                return Err(GcError::HistoryPrivate);
+                GcError::HistoryPrivate
             }
-            r => {
-                return Err(GcError::GcUnavailable(format!(
-                    "match history result {r:?}"
-                )));
-            }
-        }
-        Ok(resp.matches.iter().filter_map(|m| m.match_id).collect())
+            r => GcError::GcUnavailable(format!("match history result {r:?}")),
+        };
+        Err(err)
     }
 
     async fn send_job(
@@ -258,41 +264,20 @@ impl GcSession {
         &self,
         account_id: u32,
     ) -> Result<(Vec<u64>, bool), GcError> {
-        use c_msg_client_to_gc_get_match_history_response::EResult as HistoryResult;
-
-        let kind = MsgKind(EgcCitadelClientMessages::KEMsgClientToGcGetMatchHistory as i32);
         let mut match_ids = Vec::new();
         let mut cursor: Option<u64> = None;
         loop {
-            let req = CMsgClientToGcGetMatchHistory {
-                account_id: Some(account_id),
-                continue_cursor: cursor,
-                ..Default::default()
-            };
-            let raw = self
-                .send_job(req.encode_to_vec(), kind, "match history")
-                .await?;
-            let resp = CMsgClientToGcGetMatchHistoryResponse::decode(raw.data.as_ref())
-                .map_err(|e| GcError::GcUnavailable(format!("bad match history response: {e}")))?;
-
-            match resp.result {
-                Some(r) if r == HistoryResult::KEResultRateLimited as i32 => {
-                    if match_ids.is_empty() {
-                        return Err(GcError::GcRateLimited);
-                    }
+            let resp = match self.history_page(account_id, cursor).await {
+                Ok(resp) => resp,
+                Err(GcError::GcRateLimited) if !match_ids.is_empty() => {
                     warn!(
                         "gc: match history rate-limited, continuing with {} match(es)",
                         match_ids.len()
                     );
                     return Ok((match_ids, false));
                 }
-                Some(r) if r == HistoryResult::KEResultSuccess as i32 => {}
-                r => {
-                    return Err(GcError::GcUnavailable(format!(
-                        "match history result {r:?}"
-                    )));
-                }
-            }
+                Err(e) => return Err(e),
+            };
 
             if resp.matches.is_empty() {
                 break;

@@ -18,10 +18,15 @@ pub(crate) struct AuthContext {
     pub(crate) refresh_token: String,
 }
 
+/// The 32-bit Steam3 account id deadlock-api expects, from a `SteamID64`.
+pub(crate) fn account_id_of(steam_id64: u64) -> u32 {
+    (steam_id64 & 0xFFFF_FFFF) as u32
+}
+
 impl AuthContext {
     /// The 32-bit Steam3 account id deadlock-api expects, not the `SteamID64`.
     pub(crate) fn account_id(&self) -> u32 {
-        (self.steam_id64 & 0xFFFF_FFFF) as u32
+        account_id_of(self.steam_id64)
     }
 }
 

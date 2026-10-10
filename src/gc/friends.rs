@@ -10,7 +10,7 @@ const DAY: i64 = 24 * HOUR;
 const MIN_GAP: i64 = HOUR;
 const MAX_GAP: i64 = 3 * DAY;
 const DEFAULT_GAP: i64 = DAY;
-const GAP_SAMPLE: usize = 20;
+pub(crate) const GAP_SAMPLE: usize = 20;
 // A match takes a while to start and finish; being online only briefly after the last
 // stored match doesn't mean another one was played.
 const MIN_ACTIVITY_AFTER_LAST: i64 = 45 * 60;
@@ -29,13 +29,8 @@ pub(crate) struct Persona {
 
 /// Median gap between consecutive matches in `starts_newest_first`, clamped.
 fn typical_gap(starts_newest_first: &[i64]) -> i64 {
-    let mut gaps: Vec<i64> = starts_newest_first
-        .iter()
-        .take(GAP_SAMPLE)
-        .collect::<Vec<_>>()
-        .windows(2)
-        .map(|w| (w[0] - w[1]).abs())
-        .collect();
+    let sample = &starts_newest_first[..starts_newest_first.len().min(GAP_SAMPLE)];
+    let mut gaps: Vec<i64> = sample.windows(2).map(|w| (w[0] - w[1]).abs()).collect();
     if gaps.len() < 2 {
         return DEFAULT_GAP;
     }
@@ -69,9 +64,13 @@ pub(crate) fn estimate(
 }
 
 /// The `budget` highest-scoring friends, best first.
-pub(crate) fn pick(mut scored: Vec<(u32, u64)>, budget: usize) -> Vec<u32> {
-    scored.sort_unstable_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    scored.into_iter().take(budget).map(|(id, _)| id).collect()
+pub(crate) fn pick<T>(mut scored: Vec<(T, u64)>, budget: usize) -> Vec<T> {
+    scored.sort_by_key(|&(_, score)| core::cmp::Reverse(score));
+    scored
+        .into_iter()
+        .take(budget)
+        .map(|(friend, _)| friend)
+        .collect()
 }
 
 #[cfg(test)]
