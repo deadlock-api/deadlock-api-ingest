@@ -1,9 +1,13 @@
-//! Rolling-window fetch quota — the hard cap on Steam GC match-salt fetches.
+//! Rolling-window fetch quota — the hard cap on Steam GC match-salt fetches (and, with its
+//! own limit, on friend match-history lookups).
 //! Pure and clock-injected so it unit-tests without a store or real clock;
 //! persistence lives in [`super::store`].
 
 pub(crate) const FETCH_QUOTA_LIMIT: usize = 40;
 pub(crate) const FETCH_QUOTA_WINDOW_SECS: i64 = 24 * 60 * 60;
+// GetMatchHistory has its own per-account Steam limit; friend lookups stay well below it so
+// `--fetch-own-matches` still has headroom.
+pub(crate) const FRIEND_HISTORY_QUOTA_LIMIT: usize = 20;
 
 pub(crate) struct QuotaWindow {
     hits: Vec<i64>,
