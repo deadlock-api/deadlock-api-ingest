@@ -1,10 +1,12 @@
 //! Persisted GC state: per account, the rolling-window salt and friend-history quota
 //! timestamps (so the caps survive restarts) and a GC "backoff until" for accounts whose
 //! handshake is known-broken (e.g. they don't own the game); globally, a per-friend
-//! "don't re-check until" so friends shared by several accounts are looked up once. A
-//! single JSON file in the app data dir, loaded and saved whole — the data is tiny.
+//! "don't re-check until" so friends shared by several accounts are looked up once, and
+//! per-match salt fetch attempts so a match deadlock-api never gets metadata for (Valve
+//! sometimes can't serve it) is given up on after [`MAX_SALT_ATTEMPTS`]. A single JSON
+//! file in the app data dir, loaded and saved whole — the data is tiny.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{File, TryLockError};
 use std::io::ErrorKind;
 use std::path::PathBuf;
@@ -18,6 +20,9 @@ use super::quota::{
 
 const STORE_FILE: &str = "gc-quota.json";
 const LOCK_FILE: &str = "gc-quota.lock";
+/// Salt fetches per match before it is given up on for good. Each attempt is a match
+/// deadlock-api still had no metadata for, so its salts were fetched again.
+pub(crate) const MAX_SALT_ATTEMPTS: u32 = 3;
 
 pub(crate) use crate::utils::now_secs;
 
@@ -38,6 +43,9 @@ struct StoreData {
     /// Friend account id -> unix time before which their history isn't looked up again.
     #[serde(default)]
     friend_cooldowns: HashMap<u32, i64>,
+    /// Match id -> salt fetches so far, for matches deadlock-api had no metadata for.
+    #[serde(default)]
+    salt_attempts: HashMap<u64, u32>,
 }
 
 /// Exclusive owner of the store while alive: it holds an OS file lock, so two processes
@@ -134,6 +142,35 @@ impl GcStore {
         let mut data = self.load()?;
         data.friend_cooldowns.retain(|_, &mut t| t > now);
         data.friend_cooldowns.insert(account_id, until);
+        self.save(&data)
+    }
+
+    /// Matches whose salts were fetched [`MAX_SALT_ATTEMPTS`] times without deadlock-api
+    /// ever getting their metadata; they are never fetched again.
+    pub(crate) fn given_up_matches(&self) -> Result<HashSet<u64>, GcError> {
+        Ok(self
+            .load()?
+            .salt_attempts
+            .into_iter()
+            .filter(|&(_, n)| n >= MAX_SALT_ATTEMPTS)
+            .map(|(id, _)| id)
+            .collect())
+    }
+
+    pub(crate) fn record_salt_attempt(&self, match_id: u64) -> Result<(), GcError> {
+        let mut data = self.load()?;
+        *data.salt_attempts.entry(match_id).or_default() += 1;
+        self.save(&data)
+    }
+
+    /// Drops the attempt counts of matches deadlock-api now has metadata for.
+    pub(crate) fn forget_salt_attempts(&self, known: &HashSet<u64>) -> Result<(), GcError> {
+        let mut data = self.load()?;
+        let before = data.salt_attempts.len();
+        data.salt_attempts.retain(|id, _| !known.contains(id));
+        if data.salt_attempts.len() == before {
+            return Ok(());
+        }
         self.save(&data)
     }
 

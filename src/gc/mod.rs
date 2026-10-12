@@ -35,7 +35,7 @@ use auth::AuthContext;
 use client::GcSession;
 use error::GcError;
 use quota::QuotaWindow;
-use store::{GcStore, now_secs};
+use store::{GcStore, MAX_SALT_ATTEMPTS, now_secs};
 
 use crate::ingestion_cache::Source;
 use crate::utils::Salts;
@@ -98,6 +98,14 @@ fn runtime() -> Option<tokio::runtime::Runtime> {
         .build()
         .inspect_err(|e| warn!("gc: cannot build async runtime: {e}"))
         .ok()
+}
+
+/// Count one salt fetch of `match_id` towards [`MAX_SALT_ATTEMPTS`]. Rate-limited fetches
+/// don't count: Steam refused the account, not the match.
+fn record_salt_attempt(store: Option<&GcStore>, match_id: u64) {
+    if let Some(Err(e)) = store.map(|s| s.record_salt_attempt(match_id)) {
+        warn!("gc: {e}");
+    }
 }
 
 /// POST one match's salts; failures are logged and reported as `false`.
@@ -285,12 +293,17 @@ impl AccountRun<'_> {
     /// launched). Returns how many were posted.
     async fn fetch_salts(&mut self, match_ids: Vec<u64>) -> u32 {
         let account = self.ctx.account_id();
+        let given_up = self
+            .store
+            .given_up_matches()
+            .inspect_err(|e| warn!("gc: {e}"))
+            .unwrap_or_default();
         let mut fetched = 0;
         for match_id in match_ids {
             if self.quota.remaining(now_secs()) == 0 {
                 break;
             }
-            if self.processed.contains(&match_id) {
+            if self.processed.contains(&match_id) || given_up.contains(&match_id) {
                 continue;
             }
             throttle(self.last_request, GC_MIN_INTERVAL).await;
@@ -317,11 +330,13 @@ impl AccountRun<'_> {
                 Err(e) => {
                     warn!("gc: account {account} salt fetch failed for {match_id}: {e}");
                     self.processed.insert(match_id);
+                    record_salt_attempt(Some(self.store), match_id);
                     continue;
                 }
             };
 
             self.processed.insert(match_id);
+            record_salt_attempt(Some(self.store), match_id);
             if let Err(e) = self.spend_salt(false) {
                 warn!("gc: {e}");
                 break;
@@ -360,7 +375,12 @@ impl AccountRun<'_> {
         }
         let ids = new_ids.clone();
         match blocking(move || api::known_match_ids(&ids)).await {
-            Ok(known) => new_ids.retain(|id| !known.contains(id)),
+            Ok(known) => {
+                new_ids.retain(|id| !known.contains(id));
+                if let Err(e) = self.store.forget_salt_attempts(&known) {
+                    warn!("gc: {e}");
+                }
+            }
             Err(e) => warn!("gc: {e}"),
         }
         info!(
@@ -515,6 +535,11 @@ pub(crate) fn run_own_matches_blocking() -> bool {
         return false;
     };
 
+    // Only for the per-match attempt counts. A background pass holding it right now
+    // shouldn't block a run the user started, so this runs without the cap instead.
+    let store = GcStore::open()
+        .inspect_err(|e| warn!("gc: store unavailable, not tracking salt attempts: {e}"))
+        .ok();
     let mut done = HashSet::new();
     let mut last_request = None;
     let mut rate_limited = false;
@@ -524,7 +549,13 @@ pub(crate) fn run_own_matches_blocking() -> bool {
             warn!("Deadlock was launched, stopping. Close it and run this again.");
             return false;
         }
-        match runtime.block_on(run_own_account(ctx, &mut done, &mut last_request, &mut sys)) {
+        match runtime.block_on(run_own_account(
+            ctx,
+            store.as_ref(),
+            &mut done,
+            &mut last_request,
+            &mut sys,
+        )) {
             Ok(n) => failed += n,
             Err(GcError::GcRateLimited) => {
                 warn!("gc: account {} was rate-limited by Steam", ctx.account_id());
@@ -552,6 +583,7 @@ pub(crate) fn run_own_matches_blocking() -> bool {
 /// `GcRateLimited` if Steam rate-limited the account (after processing what it could).
 async fn run_own_account(
     ctx: &AuthContext,
+    store: Option<&GcStore>,
     done: &mut HashSet<u64>,
     last_request: &mut Option<Instant>,
     sys: &mut sysinfo::System,
@@ -563,16 +595,31 @@ async fn run_own_account(
         let ids = history.clone();
         blocking(move || api::known_match_ids(&ids)).await?
     };
-    let missing: Vec<u64> = history
+    let given_up = store.map_or_else(HashSet::new, |store| {
+        if let Err(e) = store.forget_salt_attempts(&known) {
+            warn!("gc: {e}");
+        }
+        store
+            .given_up_matches()
+            .inspect_err(|e| warn!("gc: {e}"))
+            .unwrap_or_default()
+    });
+    let (missing, skipped): (Vec<u64>, Vec<u64>) = history
         .iter()
         .copied()
         .filter(|id| !known.contains(id) && !done.contains(id))
-        .collect();
+        .partition(|id| !given_up.contains(id));
     info!(
         "gc: account {account} has {} match(es) in history, {} missing salts (~20s each)",
         history.len(),
         missing.len()
     );
+    if !skipped.is_empty() {
+        info!(
+            "gc: account {account} skips {} match(es) given up on after {MAX_SALT_ATTEMPTS} attempts",
+            skipped.len()
+        );
+    }
 
     let mut failed = 0;
     for (i, &match_id) in missing.iter().enumerate() {
@@ -586,11 +633,13 @@ async fn run_own_account(
             Err(GcError::GcRateLimited) => return Err(GcError::GcRateLimited),
             Err(e) => {
                 warn!("gc: salt fetch failed for {match_id}: {e}");
+                record_salt_attempt(store, match_id);
                 failed += 1;
                 continue;
             }
         };
         done.insert(match_id);
+        record_salt_attempt(store, match_id);
         if post(salts, Source::Own).await {
             info!(
                 "gc: ingested match {match_id} ({}/{})",
