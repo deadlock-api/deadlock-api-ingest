@@ -100,8 +100,9 @@ fn runtime() -> Option<tokio::runtime::Runtime> {
         .ok()
 }
 
-/// Count one salt fetch of `match_id` towards [`MAX_SALT_ATTEMPTS`]. Rate-limited fetches
-/// don't count: Steam refused the account, not the match.
+/// Count one salt fetch of `match_id` towards [`MAX_SALT_ATTEMPTS`]: a GC failure on the
+/// match, or salts deadlock-api accepted. Rate limits and failed posts don't count, as
+/// they say nothing about the match.
 fn record_salt_attempt(store: Option<&GcStore>, match_id: u64) {
     if let Some(Err(e)) = store.map(|s| s.record_salt_attempt(match_id)) {
         warn!("gc: {e}");
@@ -336,12 +337,12 @@ impl AccountRun<'_> {
             };
 
             self.processed.insert(match_id);
-            record_salt_attempt(Some(self.store), match_id);
             if let Err(e) = self.spend_salt(false) {
                 warn!("gc: {e}");
                 break;
             }
             if post(salts, Source::Gc).await {
+                record_salt_attempt(Some(self.store), match_id);
                 fetched += 1;
             }
         }
@@ -639,8 +640,8 @@ async fn run_own_account(
             }
         };
         done.insert(match_id);
-        record_salt_attempt(store, match_id);
         if post(salts, Source::Own).await {
+            record_salt_attempt(store, match_id);
             info!(
                 "gc: ingested match {match_id} ({}/{})",
                 i + 1,
