@@ -108,6 +108,13 @@ rm -f "$HOME/.local/share/applications/$APP_NAME-once.desktop"
 rm -f "$HOME/.local/share/applications/$APP_NAME-status.desktop"
 rm -f "$HOME/.local/share/icons/hicolor/256x256/apps/$APP_NAME.png"
 
+# The memory helper is root-owned. A reinstall (--silent) keeps it.
+HELPER_DIR="/usr/local/libexec/$APP_NAME"
+if [[ "$SILENT" == false ]] && [[ -d "$HELPER_DIR" ]]; then
+    echo -e "${CYAN}Removing the memory helper (you may be prompted for your password)...${NC}"
+    sudo rm -rf "$HELPER_DIR" || echo -e "  ${YELLOW}- Could not remove $HELPER_DIR${NC}"
+fi
+
 # Remove installation and symlink
 echo -e "${CYAN}Removing installation files...${NC}"
 if [[ -L "$BIN_SYMLINK" ]] || [[ -f "$BIN_SYMLINK" ]]; then

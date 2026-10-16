@@ -171,8 +171,7 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier={APP_NAME}
 
-# Security Hardening
-NoNewPrivileges=true
+# Security Hardening (no NoNewPrivileges: it would keep the memory helper from its capability)
 PrivateTmp=true
 
 [Install]

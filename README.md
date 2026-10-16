@@ -6,8 +6,10 @@ A lightweight background tool that monitors your Steam HTTP cache for Deadlock g
 
 The application scans Steam's local HTTP cache directory (`Steam/appcache/httpcache/`) for Deadlock replay URLs (`.meta.bz2` and `.dem.bz2` files). When it finds replay file references, it extracts the match IDs and salts, then submits them to the Deadlock API at `api.deadlock-api.com`. This allows the API to fetch and process match data from Valve's servers.
 
+While Deadlock runs, it also reads match salts from the game's memory, read-only: the replies the game gets when it loads a match, and replay addresses it keeps. That covers matches whose files Steam hasn't downloaded. It never writes to or injects anything into the game. Pass `--no-memory` to turn this off.
+
 **Key Features:**
-- 🔒 **Privacy-focused**: Only reads Steam's local cache files
+- 🔒 **Privacy-focused**: Only reads match ids and salts, from Steam's cache and the game's memory
 - ⚡ **Lightweight**: Minimal CPU and memory usage
 - 🔄 **Automatic**: Continuously monitors for new matches as you play
 - 📦 **Runs without admin**: Application runs with standard user permissions (admin only needed for auto-start setup on Windows)
@@ -63,6 +65,8 @@ chmod +x install-linux.sh
 ```
 
 > **Note**: The installation scripts automatically download the latest release binaries from GitHub and set up the application to run on user login. The application installs to your user directory and does not require elevated privileges.
+>
+> **Reading the game's memory**: most distributions only let a program read another's memory if it started it, and Steam starts Deadlock. The installer therefore offers a small helper, `/usr/local/libexec/deadlock-api-ingest/deadlock-api-ingest-memgrant`, which asks for your password once. It is the only part holding that right (`cap_sys_ptrace`), opens nothing but Deadlock's memory, read-only and for your user, and hands it to the application. Without it, starting the game through the [launch option](#steam-launch-option-alternative-to-background-service) works too.
 
 ### Docker
 
@@ -251,10 +255,10 @@ If you prefer to install manually, you can download the appropriate binary from 
 
 ## Privacy & Security
 
-- Only reads Steam's local cache files
-- Only extracts match IDs and salts from replay file URLs
+- Only reads Steam's local cache files and, while Deadlock runs, the game's memory (read-only, `--no-memory` turns it off)
+- Only extracts match IDs and salts
 - **No Personal Data**: Does not access, store, or transmit any personal information or game data
-- **Read-Only Access**: Only reads from Steam's cache directory - never modifies files
+- **Read-Only Access**: Never modifies files and never writes to or injects anything into the game
 - **Open Source**: Full source code is available for review and audit
 
 ## Contributing

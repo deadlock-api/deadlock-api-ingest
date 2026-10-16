@@ -15,6 +15,10 @@ INSTALL_DIR="$HOME/.local/share/$APP_NAME"
 BIN_DIR="$HOME/.local/bin"
 FINAL_EXECUTABLE_NAME=$APP_NAME
 
+# Opens Deadlock's memory read-only for the service; installed root-owned with cap_sys_ptrace.
+HELPER_ASSET="${APP_NAME}-memgrant-linux"
+HELPER_PATH="/usr/local/libexec/$APP_NAME/${APP_NAME}-memgrant"
+
 # Service and logging
 SERVICE_NAME=$APP_NAME
 LOG_FILE="/tmp/${APP_NAME}-install.log"
@@ -126,13 +130,14 @@ get_latest_release() {
         exit 1
     fi
 
-    local version download_url size
+    local version download_url size helper_url
     version=$(echo "$response" | jq -r '.tag_name')
     download_url=$(echo "$asset_info" | jq -r '.browser_download_url')
     size=$(echo "$asset_info" | jq -r '.size')
+    helper_url=$(echo "$response" | jq -r --arg name "$HELPER_ASSET" '[.assets[] | select(.name == $name)][0].browser_download_url // empty')
 
     # This is the only line that should print to stdout, to be captured by the calling variable.
-    echo "$version|$download_url|$size"
+    echo "$version|$download_url|$size|$helper_url"
 }
 
 # Function to download file with progress
@@ -277,8 +282,7 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=$SERVICE_NAME
 
-# Security Hardening
-NoNewPrivileges=true
+# Security Hardening (no NoNewPrivileges: it would keep the memory helper from its capability)
 PrivateTmp=true
 
 [Install]
@@ -311,6 +315,61 @@ EOF
 
 
 
+
+# Installs the helper that lets the service read match salts from Deadlock's memory. Most
+# distributions only let a program read another's memory if it started it, and Steam starts
+# the game, so the helper gets that one right (cap_sys_ptrace) and is kept root-owned.
+install_memory_helper() {
+    local helper_url="$1"
+    if [[ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" == "0" ]]; then
+        log "INFO" "This system lets the service read Deadlock's memory without a helper."
+        return 0
+    fi
+    if [[ -z "$helper_url" ]]; then
+        log "WARN" "This release has no memory helper; match salts are read from Steam's cache only."
+        return 0
+    fi
+
+    local elevate
+    if [[ -r /dev/tty ]] && command -v sudo >/dev/null 2>&1; then
+        elevate=sudo
+    elif command -v pkexec >/dev/null 2>&1; then
+        elevate=pkexec
+    else
+        log "WARN" "Neither sudo nor pkexec found; skipping the memory helper."
+        return 0
+    fi
+
+    log "INFO" "To also read match salts from Deadlock's memory while it runs, a small helper is"
+    log "INFO" "installed to $HELPER_PATH. It only opens Deadlock's memory, read-only and for your"
+    log "INFO" "user, and needs your password once ($elevate)."
+    if [[ -r /dev/tty ]]; then
+        local response=""
+        echo -n "Install the memory helper? (Y/n): " >&2
+        read -t 30 -r response < /dev/tty || true
+        if [[ "${response,,}" == n* ]]; then
+            log "INFO" "Skipped. Starting the game with '$APP_NAME -- %command%' in Steam also works."
+            return 0
+        fi
+    fi
+
+    local helper_tmp
+    helper_tmp=$(mktemp)
+    if ! curl -fsSL "$helper_url" -o "$helper_tmp"; then
+        log "WARN" "Could not download the memory helper; skipping it."
+        rm -f "$helper_tmp"
+        return 0
+    fi
+    # shellcheck disable=SC2016 # expanded by the elevated shell
+    if "$elevate" sh -c 'install -D -o root -g root -m 0755 "$1" "$2" && setcap cap_sys_ptrace=ep "$2"' \
+        sh "$helper_tmp" "$HELPER_PATH" 2>> "$LOG_FILE"; then
+        log "SUCCESS" "Memory helper installed."
+    else
+        log "WARN" "Could not install the memory helper (setcap comes with libcap2-bin or libcap)."
+        log "INFO" "Starting the game with '$APP_NAME -- %command%' in Steam also works."
+    fi
+    rm -f "$helper_tmp"
+}
 
 # Function to prompt user for auto-start setup
 prompt_for_autostart() {
@@ -365,8 +424,8 @@ main() {
 
     local release_info
     release_info=$(get_latest_release)
-    local version download_url size
-    IFS='|' read -r version download_url size <<< "$release_info"
+    local version download_url size helper_url
+    IFS='|' read -r version download_url size helper_url <<< "$release_info"
 
     if [[ -z "$version" || -z "$download_url" ]]; then
         log "ERROR" "Failed to parse release information. Cannot continue."
@@ -419,6 +478,8 @@ main() {
         log "WARN" "Failed to download uninstall script, but continuing installation."
         log "INFO" "You can manually download it from: $uninstall_script_url"
     fi
+
+    install_memory_helper "$helper_url"
 
     # Create the main service (but don't enable/start it yet)
     manage_service "create" "$final_executable_path"

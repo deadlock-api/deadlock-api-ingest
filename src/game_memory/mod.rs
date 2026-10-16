@@ -171,7 +171,8 @@ fn log_open_error(e: &io::Error, warned: &mut bool) {
         debug!("memory: cannot open Deadlock: {e}");
     } else if !core::mem::replace(warned, true) {
         let hint = if cfg!(target_os = "linux") {
-            "; start the game through the launch wrapper (`deadlock-api-ingest -- %command%`)"
+            "; run the installer again to set up the memory helper, or start the game through \
+             the launch wrapper (`deadlock-api-ingest -- %command%`)"
         } else {
             ""
         };
