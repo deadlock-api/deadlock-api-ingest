@@ -355,7 +355,7 @@ mod tests {
     }
 
     #[test]
-    fn a_match_that_ran_differently_is_not_the_replys() {
+    fn a_match_that_ran_differently_is_not_paired() {
         let other = KnownMatch {
             duration: 1200,
             ..LIVE_MATCH
