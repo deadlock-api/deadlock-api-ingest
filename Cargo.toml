@@ -44,7 +44,7 @@ keyvalues-parser = "0.2"
 iced = { version = "0.14", default-features = false, features = ["tiny-skia", "x11", "wayland", "tokio"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-rustix = { version = "1", features = ["process"] }
+rustix = { version = "1", features = ["fs", "net", "process"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.56.0"

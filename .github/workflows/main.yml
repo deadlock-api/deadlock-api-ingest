@@ -217,8 +217,10 @@ jobs:
         if: matrix.platform == 'ubuntu-latest'
         run: |
           cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} ${{ matrix.asset_name }}
-          chmod +x ${{ matrix.asset_name }}
-          ls -la ${{ matrix.asset_name }}
+          # The memory helper install-linux.sh sets up; its name must not contain "ubuntu-latest".
+          cp target/${{ matrix.target }}/release/deadlock-api-ingest-memgrant deadlock-api-ingest-memgrant-linux
+          chmod +x ${{ matrix.asset_name }} deadlock-api-ingest-memgrant-linux
+          ls -la ${{ matrix.asset_name }} deadlock-api-ingest-memgrant-linux
       - name: Prepare binary (Windows)
         if: matrix.platform == 'windows-latest'
         run: |
@@ -231,6 +233,13 @@ jobs:
         with:
           name: ${{ matrix.asset_name }}
           path: ${{ matrix.asset_name }}
+          retention-days: 1
+      - name: Upload memory helper artifact (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        uses: actions/upload-artifact@v5
+        with:
+          name: deadlock-api-ingest-memgrant-linux
+          path: deadlock-api-ingest-memgrant-linux
           retention-days: 1
       - name: Upload Windows installer artifact
         if: matrix.platform == 'windows-latest'

@@ -1,11 +1,24 @@
 //! Under Proton the game's address space is the Windows program's, read through
 //! `/proc/<pid>/mem`. With Yama's default `ptrace_scope` only the game's ancestors (the
-//! launch wrapper) or a process with `CAP_SYS_PTRACE` may open it.
+//! launch wrapper) or a process with `CAP_SYS_PTRACE` may open it; otherwise the
+//! `deadlock-api-ingest-memgrant` helper, installed with that capability, opens it for us.
 
+use core::mem::MaybeUninit;
+use core::time::Duration;
 use std::fs::{self, File};
+use std::io::{self, ErrorKind, IoSliceMut};
+use std::os::fd::OwnedFd;
 use std::os::unix::fs::FileExt;
+use std::os::unix::net::UnixStream;
+use std::path::Path;
+use std::process::{Command, Stdio};
+
+use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, recvmsg};
 
 use super::{MAX_REGION, Region};
+
+/// Where `install-linux.sh` puts the helper, root-owned.
+const HELPER: &str = "/usr/local/libexec/deadlock-api-ingest/deadlock-api-ingest-memgrant";
 
 pub(super) struct GameProcess {
     pid: u32,
@@ -13,8 +26,18 @@ pub(super) struct GameProcess {
 }
 
 impl GameProcess {
-    pub(super) fn open(pid: u32) -> std::io::Result<Self> {
-        let mem = File::open(format!("/proc/{pid}/mem"))?;
+    pub(super) fn open(pid: u32) -> io::Result<Self> {
+        let mem = match File::open(format!("/proc/{pid}/mem")) {
+            Err(e) if e.kind() == ErrorKind::PermissionDenied && Path::new(HELPER).exists() => {
+                open_through_helper(pid).map_err(|helper| {
+                    io::Error::new(
+                        ErrorKind::PermissionDenied,
+                        format!("{e}; {HELPER}: {helper}"),
+                    )
+                })?
+            }
+            opened => opened?,
+        };
         Ok(Self { pid, mem })
     }
 
@@ -29,6 +52,40 @@ impl GameProcess {
     pub(super) fn read(&self, addr: usize, buf: &mut [u8]) -> usize {
         u64::try_from(addr).map_or(0, |offset| self.mem.read_at(buf, offset).unwrap_or(0))
     }
+}
+
+/// Runs the helper with one end of a socket pair as its stdout and takes the open memory file
+/// it sends back.
+fn open_through_helper(pid: u32) -> io::Result<File> {
+    let (ours, theirs) = UnixStream::pair()?;
+    let output = Command::new(HELPER)
+        .arg(pid.to_string())
+        .stdin(Stdio::null())
+        .stdout(OwnedFd::from(theirs))
+        .output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(
+            String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        ));
+    }
+    ours.set_read_timeout(Some(Duration::from_secs(5)))?;
+    let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
+    let mut control = RecvAncillaryBuffer::new(&mut space);
+    let mut byte = [0_u8];
+    recvmsg(
+        &ours,
+        &mut [IoSliceMut::new(&mut byte)],
+        &mut control,
+        RecvFlags::CMSG_CLOEXEC,
+    )?;
+    control
+        .drain()
+        .find_map(|message| match message {
+            RecvAncillaryMessage::ScmRights(mut fds) => fds.next(),
+            _ => None,
+        })
+        .map(File::from)
+        .ok_or_else(|| io::Error::other("the helper sent no file"))
 }
 
 fn heap_regions(maps: &str) -> Vec<Region> {

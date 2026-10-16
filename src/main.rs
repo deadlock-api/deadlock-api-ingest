@@ -65,6 +65,7 @@ struct Args {
 mod console;
 mod error;
 mod game_memory;
+mod game_names;
 mod game_process;
 mod gc;
 mod gui;
