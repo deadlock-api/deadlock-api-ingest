@@ -6,6 +6,10 @@ use std::sync::OnceLock;
 use std::thread::sleep;
 use tracing::debug;
 use ureq::Error::StatusCode;
+use valveprotos::deadlock::CMsgClientToGcGetMatchMetaDataResponse;
+
+/// The API rejects larger match ids.
+pub(crate) const MAX_MATCH_ID: u64 = 10_000_000_000;
 
 static HTTP_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
 static TIMEOUT_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
@@ -89,9 +93,27 @@ impl Salts {
         }
     }
 
+    /// The salts in a Game Coordinator `GetMatchMetaData` reply for `match_id`; `None` when it
+    /// carries no salt.
+    pub(crate) fn from_metadata_reply(
+        match_id: u64,
+        reply: &CMsgClientToGcGetMatchMetaDataResponse,
+        username: Option<u32>,
+    ) -> Option<Self> {
+        let salt = |salt: Option<u32>| salt.filter(|&s| s != 0);
+        let (metadata_salt, replay_salt) = (salt(reply.metadata_salt), salt(reply.replay_salt));
+        (metadata_salt.is_some() || replay_salt.is_some()).then_some(Self {
+            match_id,
+            cluster_id: reply.replay_group_id,
+            metadata_salt,
+            replay_salt,
+            username,
+        })
+    }
+
     /// POSTs the salts and, on success, records them (see `ingestion_cache`).
     pub(crate) fn ingest(&self, source: Source) -> Result<(), Error> {
-        if self.match_id > 10000000000 {
+        if self.match_id > MAX_MATCH_ID {
             return Err(Error::MatchIdTooLarge);
         }
 

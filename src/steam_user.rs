@@ -10,7 +10,7 @@ static CURRENT_STEAM_ID3: OnceLock<Option<u32>> = OnceLock::new();
 pub(crate) fn current_steam_id3() -> Option<u32> {
     *CURRENT_STEAM_ID3.get_or_init(|| {
         let id64 = get_current_steam_id64()?;
-        u32::try_from(id64 - STEAM_ID_64_IDENT).ok()
+        u32::try_from(id64.checked_sub(STEAM_ID_64_IDENT)?).ok()
     })
 }
 

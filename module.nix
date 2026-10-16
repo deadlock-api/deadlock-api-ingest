@@ -76,6 +76,10 @@ in {
         Restart = "on-failure";
         RestartSec = "10s";
 
+        # Lets the service open Deadlock's memory read-only (/proc/<pid>/mem) for match salts;
+        # with Yama's default ptrace_scope only the game's ancestors could otherwise.
+        AmbientCapabilities = [ "CAP_SYS_PTRACE" ];
+
         # Hardening (relaxed to allow Steam directory access)
         NoNewPrivileges = true;
         PrivateTmp = true;

@@ -1,4 +1,5 @@
-// Only `console` uses unsafe (Win32 calls), with a local `allow`.
+// Only `console` and `game_memory`'s Windows reader use unsafe (Win32 calls), with a
+// local `allow`.
 #![deny(unsafe_code)]
 #![deny(clippy::all)]
 #![deny(unreachable_pub)]
@@ -28,25 +29,29 @@ struct Args {
     #[arg(long)]
     no_gc: bool,
 
+    /// Disable reading match salts from Deadlock's memory while it runs
+    #[arg(long)]
+    no_memory: bool,
+
     /// Ingest once and exit (no file watching)
     #[arg(long)]
     once: bool,
 
     /// Recover salts for your own match history via the Steam Game Coordinator, then exit
-    #[arg(long, conflicts_with_all = ["once", "no_gc", "command"])]
+    #[arg(long, conflicts_with_all = ["once", "no_gc", "no_memory", "command"])]
     own_matches: bool,
 
     /// Open the status window; installs and starts the background service if it isn't running
-    #[arg(long, conflicts_with_all = ["once", "no_gc", "own_matches", "install", "uninstall", "command"])]
+    #[arg(long, conflicts_with_all = ["once", "no_gc", "no_memory", "own_matches", "install", "uninstall", "command"])]
     gui: bool,
 
     /// Install for the current user (Windows): copy to %LOCALAPPDATA%, add shortcuts and an
     /// uninstall entry, then open the status window. Implied when the exe is named `*-setup.exe`
-    #[arg(long, conflicts_with_all = ["once", "no_gc", "own_matches", "uninstall", "command"])]
+    #[arg(long, conflicts_with_all = ["once", "no_gc", "no_memory", "own_matches", "uninstall", "command"])]
     install: bool,
 
     /// Remove what --install set up (Windows); keeps logs and fetched-salts.jsonl
-    #[arg(long, conflicts_with_all = ["once", "no_gc", "own_matches", "command"])]
+    #[arg(long, conflicts_with_all = ["once", "no_gc", "no_memory", "own_matches", "command"])]
     uninstall: bool,
 
     /// Game command to wrap (launch wrapper mode).
@@ -59,6 +64,8 @@ struct Args {
 
 mod console;
 mod error;
+mod game_memory;
+mod game_process;
 mod gc;
 mod gui;
 mod ingestion_cache;
@@ -226,6 +233,12 @@ fn main() {
         }
     }
 
+    // In launch-wrapper mode on Linux this runs in the game's ancestor, which Yama's
+    // default `ptrace_scope` needs for reading its memory.
+    if !args.no_memory && !args.once {
+        game_memory::spawn_background();
+    }
+
     if !args.command.is_empty() {
         let exit_code = run_launch_wrapper(
             move || {
@@ -247,6 +260,9 @@ fn main() {
     if args.once {
         if !args.no_gc {
             gc::run_pass_blocking();
+        }
+        if !args.no_memory {
+            game_memory::run_pass_blocking();
         }
         std::process::exit(0);
     }

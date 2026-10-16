@@ -47,7 +47,15 @@ iced = { version = "0.14", default-features = false, features = ["tiny-skia", "x
 winreg = "0.56.0"
 windows-dpapi = "0.2.0"
 mslnk = "0.1.8"
-windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_System_Console",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Memory",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }
 
 [build-dependencies]
 # Windows icon + version info (works with the MinGW toolchain, unlike winres).
