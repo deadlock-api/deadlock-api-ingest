@@ -256,8 +256,7 @@ If you prefer to install manually, you can download the appropriate binary from 
 ## Privacy & Security
 
 - Only reads Steam's local cache files and, while Deadlock runs, the game's memory (read-only, `--no-memory` turns it off)
-- Only extracts match IDs and salts
-- **No Personal Data**: Does not access, store, or transmit any personal information or game data
+- **Minimal Data**: Looks only for match IDs and salts. It sends those and your Steam account ID (to credit your uploads) to the Deadlock API, and keeps a local log of what it submitted (`fetched-salts.jsonl`)
 - **Read-Only Access**: Never modifies files and never writes to or injects anything into the game
 - **Open Source**: Full source code is available for review and audit
 
