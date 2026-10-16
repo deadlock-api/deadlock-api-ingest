@@ -49,16 +49,6 @@ fn grant() -> Result<(), String> {
     )
     .map_err(|e| format!("no process {pid}: {e}"))?;
 
-    let status = read_at(&proc_dir, "status")?;
-    if real_uid(&status) != Some(rustix::process::getuid().as_raw()) {
-        return Err(format!("process {pid} belongs to another user"));
-    }
-    let name = read_at(&proc_dir, "comm")?;
-    let cmdline = read_at(&proc_dir, "cmdline")?;
-    if !game_names::is_game(Some(name.trim_end()), cmdline.split('\0').next()) {
-        return Err(format!("process {pid} is not Deadlock"));
-    }
-
     let mem = rustix::fs::openat(
         &proc_dir,
         "mem",
@@ -66,6 +56,27 @@ fn grant() -> Result<(), String> {
         Mode::empty(),
     )
     .map_err(|e| format!("cannot open the memory of process {pid}: {e}"))?;
+
+    // Checked after opening: a process that gained privileges before is refused, and one
+    // that gains them later (a setuid exec) leaves us its old, unprivileged memory.
+    let (uid, gid) = (
+        rustix::process::getuid().as_raw(),
+        rustix::process::getgid().as_raw(),
+    );
+    // The kernel makes a process's /proc entries root's while it isn't dumpable, e.g. after
+    // dropping setuid privileges, as ptrace would refuse it.
+    let owner =
+        rustix::fs::fstat(&proc_dir).map_err(|e| format!("cannot stat process {pid}: {e}"))?;
+    let status = read_at(&proc_dir, "status")?;
+    if owner.st_uid != uid || !all_ids(&status, "Uid:", uid) || !all_ids(&status, "Gid:", gid) {
+        return Err(format!("process {pid} is not the caller's alone"));
+    }
+    let name = read_at(&proc_dir, "comm")?;
+    let cmdline = read_at(&proc_dir, "cmdline")?;
+    if !game_names::is_game(Some(name.trim_end()), cmdline.split('\0').next()) {
+        return Err(format!("process {pid} is not Deadlock"));
+    }
+
     send_fd(mem.as_fd()).map_err(|e| format!("cannot pass the memory on: {e}"))
 }
 
@@ -83,16 +94,33 @@ fn read_at(dir: &std::os::fd::OwnedFd, name: &str) -> Result<String, String> {
     Ok(text)
 }
 
-/// The real uid on the `Uid:` line of `/proc/<pid>/status`.
+/// Whether every id (real, effective, saved, filesystem) on the `field` line of
+/// `/proc/<pid>/status` is `id`.
 #[cfg(target_os = "linux")]
-fn real_uid(status: &str) -> Option<u32> {
+fn all_ids(status: &str, field: &str, id: u32) -> bool {
     status
         .lines()
-        .find_map(|line| line.strip_prefix("Uid:"))?
-        .split_whitespace()
-        .next()?
-        .parse()
-        .ok()
+        .find_map(|line| line.strip_prefix(field))
+        .is_some_and(|ids| {
+            let ids: Vec<&str> = ids.split_whitespace().collect();
+            ids.len() == 4 && ids.iter().all(|v| v.parse() == Ok(id))
+        })
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::all_ids;
+
+    #[test]
+    fn a_process_counts_as_the_callers_only_with_all_its_ids() {
+        let status =
+            "Name:\tMainThrd\nUid:\t1000\t1000\t1000\t1000\nGid:\t1000\t1000\t1000\t1000\n";
+        assert!(all_ids(status, "Uid:", 1000));
+        assert!(all_ids(status, "Gid:", 1000));
+        let setuid = "Uid:\t1000\t0\t0\t0\n";
+        assert!(!all_ids(setuid, "Uid:", 1000));
+        assert!(!all_ids("Name:\tx\n", "Uid:", 1000));
+    }
 }
 
 #[cfg(target_os = "linux")]

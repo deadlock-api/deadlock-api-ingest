@@ -33,4 +33,5 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /app/target/release/deadlock-api-ingest /usr/local/bin
-ENTRYPOINT ["/usr/local/bin/deadlock-api-ingest"]
+# A container cannot see the game's process, so its memory is not read.
+ENTRYPOINT ["/usr/local/bin/deadlock-api-ingest", "--no-memory"]

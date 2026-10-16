@@ -78,7 +78,7 @@ docker run -d --restart unless-stopped \
   ghcr.io/deadlock-api/deadlock-api-ingest:latest
 ```
 
-> **Note**: The command above mounts the default Steam cache directory on Linux (`~/.steam/steam`). If your Steam installation is in a different location, please adjust the path accordingly.
+> **Note**: The command above mounts the default Steam cache directory on Linux (`~/.steam/steam`). If your Steam installation is in a different location, please adjust the path accordingly. The container cannot see the game's process, so it only reads Steam's cache, not the game's memory.
 
 ### NixOS
 
