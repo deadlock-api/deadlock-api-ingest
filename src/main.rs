@@ -38,20 +38,20 @@ struct Args {
     once: bool,
 
     /// Recover salts for your own match history via the Steam Game Coordinator, then exit
-    #[arg(long, conflicts_with_all = ["once", "no_gc", "no_memory", "command"])]
+    #[arg(long, conflicts_with_all = ["once", "no_gc", "command"])]
     own_matches: bool,
 
     /// Open the status window; installs and starts the background service if it isn't running
-    #[arg(long, conflicts_with_all = ["once", "no_gc", "no_memory", "own_matches", "install", "uninstall", "command"])]
+    #[arg(long, conflicts_with_all = ["once", "no_gc", "own_matches", "install", "uninstall", "command"])]
     gui: bool,
 
     /// Install for the current user (Windows): copy to %LOCALAPPDATA%, add shortcuts and an
     /// uninstall entry, then open the status window. Implied when the exe is named `*-setup.exe`
-    #[arg(long, conflicts_with_all = ["once", "no_gc", "no_memory", "own_matches", "uninstall", "command"])]
+    #[arg(long, conflicts_with_all = ["once", "no_gc", "own_matches", "uninstall", "command"])]
     install: bool,
 
     /// Remove what --install set up (Windows); keeps logs and fetched-salts.jsonl
-    #[arg(long, conflicts_with_all = ["once", "no_gc", "no_memory", "own_matches", "command"])]
+    #[arg(long, conflicts_with_all = ["once", "no_gc", "own_matches", "command"])]
     uninstall: bool,
 
     /// Game command to wrap (launch wrapper mode).
@@ -289,6 +289,22 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_memory_goes_with_every_mode() {
+        for mode in [
+            "--own-matches",
+            "--once",
+            "--gui",
+            "--install",
+            "--uninstall",
+        ] {
+            assert!(
+                Args::try_parse_from(["deadlock-api-ingest", "--no-memory", mode]).is_ok(),
+                "--no-memory {mode}"
+            );
+        }
+    }
     use std::time::Instant;
 
     #[test]
