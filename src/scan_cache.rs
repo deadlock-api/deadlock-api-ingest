@@ -12,6 +12,8 @@ const DEADLOCK_APP_ID: &str = "1422450";
 const MAX_BYTES_TO_READ: usize = 200;
 const SEARCH_SEQUENCE: &[u8; 10] = b".valve.net";
 const PATH_END_MARKERS: [u8; 6] = *b" '\0\n\r\"";
+/// Replay paths are short; this bounds the search for their end in large buffers.
+const MAX_PATH_LEN: usize = 256;
 
 pub(super) fn scan_directory(dir: &Path, results: &mut Vec<String>) {
     if let Ok(entries) = fs::read_dir(dir) {
@@ -59,6 +61,7 @@ pub(crate) fn replay_urls(data: &[u8]) -> impl Iterator<Item = String> {
 
         // Extract Path
         let after_host = data.get(host_end..)?;
+        let after_host = after_host.get(..MAX_PATH_LEN).unwrap_or(after_host);
         let path_slice = after_host.get(memchr(b'/', after_host)?..)?;
         let path_end = PATH_END_MARKERS
             .into_iter()

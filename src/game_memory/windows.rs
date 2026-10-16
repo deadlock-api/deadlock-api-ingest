@@ -1,7 +1,7 @@
 //! The game opened with query and read rights only.
 
 use core::ptr;
-use std::os::windows::io::{AsRawHandle, FromRawHandle, HandleOrNull, OwnedHandle};
+use std::os::windows::io::{AsRawHandle, HandleOrNull, OwnedHandle};
 
 use windows_sys::Win32::System::Diagnostics::Debug::ReadProcessMemory;
 use windows_sys::Win32::System::Memory::{
