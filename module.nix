@@ -35,7 +35,8 @@ in {
       default = true;
       description = ''
         Read match salts from Deadlock's memory while it runs. Grants the service
-        CAP_SYS_PTRACE, which it uses only to open the game's /proc/<pid>/mem read-only.
+        CAP_SYS_PTRACE, which would let it read any process's memory on the host; the
+        service only ever opens Deadlock's /proc/<pid>/mem, read-only.
       '';
     };
 

@@ -85,13 +85,13 @@ fn read_at(dir: &std::os::fd::OwnedFd, name: &str) -> Result<String, String> {
     use rustix::fs::{Mode, OFlags, openat};
     use std::io::Read;
 
-    let mut text = String::new();
+    let mut bytes = Vec::new();
     openat(dir, name, OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty())
         .map(std::fs::File::from)
         .map_err(std::io::Error::from)
-        .and_then(|mut file| file.read_to_string(&mut text))
+        .and_then(|mut file| file.read_to_end(&mut bytes))
         .map_err(|e| format!("cannot read /proc/<pid>/{name}: {e}"))?;
-    Ok(text)
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// Whether every id (real, effective, saved, filesystem) on the `field` line of

@@ -6,12 +6,14 @@
 use core::mem::MaybeUninit;
 use core::time::Duration;
 use std::fs::{self, File};
-use std::io::{self, ErrorKind, IoSliceMut};
+use std::io::{self, ErrorKind, IoSliceMut, Read};
 use std::os::fd::OwnedFd;
 use std::os::unix::fs::FileExt;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::thread::sleep;
+use std::time::Instant;
 
 use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, recvmsg};
 
@@ -19,6 +21,7 @@ use super::{MAX_REGION, Region};
 
 /// Where `install-linux.sh` puts the helper, root-owned.
 const HELPER: &str = "/usr/local/libexec/deadlock-api-ingest/deadlock-api-ingest-memgrant";
+const HELPER_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(super) struct GameProcess {
     pid: u32,
@@ -58,17 +61,35 @@ impl GameProcess {
 /// it sends back.
 fn open_through_helper(pid: u32) -> io::Result<File> {
     let (ours, theirs) = UnixStream::pair()?;
-    let output = Command::new(HELPER)
+    let mut helper = Command::new(HELPER)
         .arg(pid.to_string())
         .stdin(Stdio::null())
         .stdout(OwnedFd::from(theirs))
-        .output()?;
-    if !output.status.success() {
-        return Err(io::Error::other(
-            String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-        ));
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = helper.try_wait()? {
+            break status;
+        }
+        if started.elapsed() > HELPER_TIMEOUT {
+            let _ = helper.kill();
+            let _ = helper.wait();
+            return Err(io::Error::new(
+                ErrorKind::TimedOut,
+                "the helper did not finish",
+            ));
+        }
+        sleep(Duration::from_millis(20));
+    };
+    if !status.success() {
+        let mut stderr = String::new();
+        if let Some(mut pipe) = helper.stderr.take() {
+            let _ = pipe.read_to_string(&mut stderr);
+        }
+        return Err(io::Error::other(stderr.trim().to_owned()));
     }
-    ours.set_read_timeout(Some(Duration::from_secs(5)))?;
+    ours.set_read_timeout(Some(HELPER_TIMEOUT))?;
     let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
     let mut control = RecvAncillaryBuffer::new(&mut space);
     let mut byte = [0_u8];

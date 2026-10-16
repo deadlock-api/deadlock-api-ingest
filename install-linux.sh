@@ -361,7 +361,7 @@ install_memory_helper() {
         return 0
     fi
     # shellcheck disable=SC2016 # expanded by the elevated shell
-    if "$elevate" sh -c 'install -D -o root -g root -m 0755 "$1" "$2" && setcap cap_sys_ptrace=ep "$2"' \
+    if "$elevate" /bin/sh -c 'install -D -o root -g root -m 0755 "$1" "$2" && { setcap cap_sys_ptrace=ep "$2" || { rm -f "$2"; exit 1; }; }' \
         sh "$helper_tmp" "$HELPER_PATH" 2>> "$LOG_FILE"; then
         log "SUCCESS" "Memory helper installed."
     else
