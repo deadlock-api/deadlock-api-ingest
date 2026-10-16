@@ -360,12 +360,12 @@ mod tests {
             duration: 1200,
             ..LIVE_MATCH
         };
-        assert!(found_with(Some(other)).into_salts().is_empty());
+        assert_eq!(found_with(Some(other)).into_salts(), Vec::<Salts>::new());
     }
 
     #[test]
     fn matches_starting_in_the_same_second_are_left_out() {
-        assert!(found_with(None).into_salts().is_empty());
+        assert_eq!(found_with(None).into_salts(), Vec::<Salts>::new());
     }
 
     #[test]
