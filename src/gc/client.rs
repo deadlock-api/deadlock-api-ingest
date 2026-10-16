@@ -252,17 +252,8 @@ impl GcSession {
             Some(r) if r == EResult::KEResultSuccess as i32 => {}
             r => return Err(GcError::GcUnavailable(format!("salts result {r:?}"))),
         }
-        if resp.metadata_salt.is_none() && resp.replay_salt.is_none() {
-            return Err(GcError::GcUnavailable("response has no salts".into()));
-        }
-
-        Ok(Salts {
-            match_id,
-            cluster_id: resp.replay_group_id,
-            metadata_salt: resp.metadata_salt,
-            replay_salt: resp.replay_salt,
-            username: Some(self.account_id),
-        })
+        Salts::from_metadata_reply(match_id, &resp, Some(self.account_id))
+            .ok_or_else(|| GcError::GcUnavailable("response has no salts".into()))
     }
 
     /// Every match id in `account_id`'s history, following `continue_cursor` pages, and

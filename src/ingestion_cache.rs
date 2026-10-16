@@ -30,6 +30,9 @@ pub(crate) enum Source {
     /// Other players' matches recovered through the Game Coordinator (friends, the
     /// to-fetch list). Not the user's, so the status window leaves them out.
     Gc,
+    /// Deadlock's own memory while it runs (see `game_memory`). Like the cache, any match
+    /// opened in-game.
+    Memory,
 }
 
 /// One line of the log file.
@@ -138,9 +141,15 @@ pub(crate) fn mark_ingested(salt: &Salts, source: Source) {
     }
 }
 
+/// Whether `salts` carries a metadata or replay salt not yet ingested for its match.
+pub(crate) fn is_new(salts: &Salts) -> bool {
+    (salts.metadata_salt.is_some() && !is_ingested(salts.match_id, true))
+        || (salts.replay_salt.is_some() && !is_ingested(salts.match_id, false))
+}
+
 /// Check if a salt has already been ingested.
 /// Returns true if the specific salt type (metadata or replay) has been ingested for this `match_id`.
-pub(crate) fn is_ingested(match_id: u64, is_metadata: bool) -> bool {
+fn is_ingested(match_id: u64, is_metadata: bool) -> bool {
     let cache = INGESTION_CACHE.get_or_init(Default::default);
     let cache = cache.read().unwrap_or_else(|poisoned| {
         warn!("Failed to lock ingestion cache for reading");

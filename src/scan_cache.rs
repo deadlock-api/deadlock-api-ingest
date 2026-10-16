@@ -38,49 +38,39 @@ fn extract_replay_url(path: &Path) -> Option<String> {
     let mut data = vec![0u8; MAX_BYTES_TO_READ];
     let bytes_read = file.read(&mut data).ok()?;
     data.truncate(bytes_read);
+    replay_urls(&data).next()
+}
 
-    let finder = memmem::Finder::new(SEARCH_SEQUENCE);
-
-    // Find all occurrences of .valve.net
-    for i in finder.find_iter(&data) {
+/// Deadlock replay URLs in `data`, like
+/// `http://replay404.valve.net/1422450/37959196_937530290.meta.bz2`.
+pub(crate) fn replay_urls(data: &[u8]) -> impl Iterator<Item = String> {
+    memmem::find_iter(data, SEARCH_SEQUENCE).filter_map(|i| {
         // Extract Host
-        let host_start = (0..i)
-            .rev()
-            .find(|&pos| !data[pos].is_ascii_alphanumeric() && data[pos] != b'.')
-            .map_or(0, |pos| pos + 1);
-        let host_end = i + SEARCH_SEQUENCE.len();
-        let host_slice = &data[host_start..host_end];
-
-        let Ok(host) = core::str::from_utf8(host_slice) else {
-            continue;
-        };
-        if !host.starts_with("replay") || !host.contains(".valve.net") {
-            continue;
+        let host_start = data
+            .get(..i)?
+            .iter()
+            .rposition(|b| !b.is_ascii_alphanumeric() && *b != b'.')
+            .map_or(0, |pos| pos.saturating_add(1));
+        let host_end = i.checked_add(SEARCH_SEQUENCE.len())?;
+        let host = core::str::from_utf8(data.get(host_start..host_end)?).ok()?;
+        if !host.starts_with("replay") {
+            return None;
         }
 
         // Extract Path
-        let path_start = match memchr(b'/', &data[host_end..]) {
-            Some(slash_pos) => host_end + slash_pos,
-            None => continue,
-        };
-        let path_slice = &data[path_start..];
+        let after_host = data.get(host_end..)?;
+        let path_slice = after_host.get(memchr(b'/', after_host)?..)?;
         let path_end = PATH_END_MARKERS
             .into_iter()
             .filter_map(|marker| memchr(marker, path_slice))
             .min()?;
-
-        let Ok(path) = core::str::from_utf8(&path_slice[..path_end]) else {
-            continue;
-        };
+        let path = core::str::from_utf8(path_slice.get(..path_end)?).ok()?;
         if !path.contains(DEADLOCK_APP_ID) {
-            continue;
+            return None;
         }
 
-        // Construct full URL
-        return Some(format!("http://{host}{path}"));
-    }
-
-    None
+        Some(format!("http://{host}{path}"))
+    })
 }
 
 pub(super) fn initial_cache_dir_ingest(cache_dir: &Path) {
@@ -122,12 +112,7 @@ pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
                 && let Some(salts) = Salts::from_url(&url)
             {
                 // Check if we've already ingested this salt using the shared cache
-                let is_new_metadata = salts.metadata_salt.is_some()
-                    && !ingestion_cache::is_ingested(salts.match_id, true);
-                let is_new_replay = salts.replay_salt.is_some()
-                    && !ingestion_cache::is_ingested(salts.match_id, false);
-
-                if !is_new_metadata && !is_new_replay {
+                if !ingestion_cache::is_new(&salts) {
                     continue;
                 }
 
@@ -139,4 +124,24 @@ pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replay_urls_are_lifted_whole() {
+        let mut data =
+            b"\0\0http://replay404.valve.net/1422450/37959196_937530290.meta.bz2\0junk".to_vec();
+        data.extend(b" replay183.valve.net/1422450/42476710_428480166.dem.bz2\n");
+        data.extend(b" cdn.valve.net/1422450/1_2.meta.bz2\0");
+        assert_eq!(
+            replay_urls(&data).collect::<Vec<_>>(),
+            [
+                "http://replay404.valve.net/1422450/37959196_937530290.meta.bz2",
+                "http://replay183.valve.net/1422450/42476710_428480166.dem.bz2",
+            ]
+        );
+    }
 }

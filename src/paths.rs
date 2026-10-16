@@ -30,6 +30,11 @@ pub(crate) fn instance_lock_path() -> Option<PathBuf> {
     Some(data_dir()?.join("instance.lock"))
 }
 
+/// Held by the one process per user that reads the game's memory; see `game_memory`.
+pub(crate) fn game_memory_lock_path() -> Option<PathBuf> {
+    Some(data_dir()?.join("game-memory.lock"))
+}
+
 pub(crate) fn current_exe() -> Result<PathBuf, String> {
     std::env::current_exe().map_err(|e| format!("Cannot locate own executable: {e}"))
 }

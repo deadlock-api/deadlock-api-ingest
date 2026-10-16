@@ -56,21 +56,9 @@ const MAX_FRIEND_HISTORIES_PER_PASS: usize = 5;
 const FRIEND_COOLDOWN_SECS: i64 = 6 * 60 * 60;
 const PRIVATE_FRIEND_COOLDOWN_SECS: i64 = 7 * 24 * 60 * 60;
 
-// Deadlock process names across platforms; if any is running, GC traffic goes to the
-// game, not us, so the whole pass is skipped.
-const GAME_PROCESS_NAMES: &[&str] = &["project8.exe", "deadlock.exe", "project8"];
-
+// While Deadlock runs, GC traffic goes to the game, not us, so the whole pass is skipped.
 fn game_running(sys: &mut sysinfo::System) -> bool {
-    sys.refresh_processes_specifics(
-        sysinfo::ProcessesToUpdate::All,
-        true,
-        sysinfo::ProcessRefreshKind::nothing(),
-    );
-    GAME_PROCESS_NAMES.iter().any(|name| {
-        sys.processes_by_exact_name(std::ffi::OsStr::new(name))
-            .next()
-            .is_some()
-    })
+    crate::game_process::find_pid(sys).is_some()
 }
 
 fn fresh_newest_first(ids: Vec<u64>, processed: &HashSet<u64>, take: usize) -> Vec<u64> {
