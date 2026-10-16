@@ -30,6 +30,15 @@ in {
       description = "Group under which deadlock-api-ingest runs";
     };
 
+    readGameMemory = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        Read match salts from Deadlock's memory while it runs. Grants the service
+        CAP_SYS_PTRACE, which it uses only to open the game's /proc/<pid>/mem read-only.
+      '';
+    };
+
     steamUser = mkOption {
       type = types.nullOr types.str;
       default = cfg.user;
@@ -72,13 +81,15 @@ in {
         Type = "simple";
         User = cfg.user;
         Group = cfg.group;
-        ExecStart = "${cfg.package}/bin/deadlock-api-ingest";
+        ExecStart = "${cfg.package}/bin/deadlock-api-ingest" + optionalString (!cfg.readGameMemory) " --no-memory";
         Restart = "on-failure";
         RestartSec = "10s";
 
-        # Lets the service open Deadlock's memory read-only (/proc/<pid>/mem) for match salts;
-        # with Yama's default ptrace_scope only the game's ancestors could otherwise.
-        AmbientCapabilities = [ "CAP_SYS_PTRACE" ];
+        # CAP_SYS_PTRACE opens Deadlock's /proc/<pid>/mem (see readGameMemory); no other
+        # capability is kept, and the ptrace syscall itself, which the reader never needs, is denied.
+        AmbientCapabilities = optional cfg.readGameMemory "CAP_SYS_PTRACE";
+        CapabilityBoundingSet = if cfg.readGameMemory then [ "CAP_SYS_PTRACE" ] else [ "" ];
+        SystemCallFilter = [ "~ptrace" ];
 
         # Hardening (relaxed to allow Steam directory access)
         NoNewPrivileges = true;

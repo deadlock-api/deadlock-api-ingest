@@ -11,6 +11,9 @@ use valveprotos::deadlock::CMsgClientToGcGetMatchMetaDataResponse;
 /// The API rejects larger match ids.
 pub(crate) const MAX_MATCH_ID: u64 = 10_000_000_000;
 
+/// The API takes at most this many salts per request.
+const MAX_SALTS_PER_REQUEST: usize = 1000;
+
 static HTTP_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
 static TIMEOUT_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
 
@@ -145,6 +148,12 @@ impl Salts {
     }
 
     pub(crate) fn ingest_many(salts: &[Salts], source: Source) -> Result<(), Error> {
+        salts
+            .chunks(MAX_SALTS_PER_REQUEST)
+            .try_for_each(|batch| Self::ingest_batch(batch, source))
+    }
+
+    fn ingest_batch(salts: &[Salts], source: Source) -> Result<(), Error> {
         let max_retries = 10;
         let num_salts = salts.len();
         let mut attempt = 0;

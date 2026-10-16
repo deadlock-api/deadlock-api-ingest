@@ -144,6 +144,12 @@ fn acquire_instance_lock() -> Option<File> {
 }
 
 fn run_launch_wrapper<F: FnOnce() + Send + 'static>(background_work: F, command: &[String]) -> i32 {
+    // Wine double-forks the game, which then belongs to the nearest subreaper. Being one keeps
+    // the game our descendant, which reading its memory needs under Yama's default ptrace_scope.
+    #[cfg(target_os = "linux")]
+    if let Err(e) = rustix::process::set_child_subreaper(Some(rustix::process::getpid())) {
+        warn!("Cannot become the game's subreaper: {e}");
+    }
     std::thread::spawn(background_work);
     info!("Launching game: {}", command.join(" "));
     match std::process::Command::new(&command[0])
