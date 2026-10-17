@@ -156,6 +156,11 @@ async fn run_pass(contexts: &[AuthContext], store: &GcStore, sys: &mut sysinfo::
             warn!("gc: account {} pass failed: {e}", ctx.account_id());
         }
     }
+    // Each to-fetch call released the list before it; the last one's unfetched matches
+    // would otherwise stay hidden from other workers until the claim expires.
+    if let Err(e) = tokio::task::spawn_blocking(api::release_to_fetch).await {
+        warn!("gc: to-fetch release task panicked: {e}");
+    }
 }
 
 /// Run a blocking deadlock-api call off the async runtime.
