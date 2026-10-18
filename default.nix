@@ -9,7 +9,12 @@
   makeWrapper,
   libxkbcommon,
   wayland,
-  xorg,
+  
+  libX11,
+  libXcursor,
+  libXi,
+  libXrandr,
+
   src,
 }:
 
@@ -30,22 +35,22 @@ naersk-lib.buildPackage {
 
   buildInputs = [
     openssl
-  ] ++ lib.optionals stdenv.isDarwin [
+  ] ++ lib.optionals stdenv.hostPlatform.isDarwin [
     darwin.apple_sdk.frameworks.Security
     darwin.apple_sdk.frameworks.SystemConfiguration
   ];
 
   # `--gui` (winit) dlopens the windowing libraries at runtime.
-  postInstall = lib.optionalString stdenv.isLinux ''
+  postInstall = lib.optionalString stdenv.hostPlatform.isLinux ''
     wrapProgram $out/bin/deadlock-api-ingest \
       --prefix LD_LIBRARY_PATH : ${
         lib.makeLibraryPath [
           libxkbcommon
           wayland
-          xorg.libX11
-          xorg.libXcursor
-          xorg.libXi
-          xorg.libXrandr
+          libX11
+          libXcursor
+          libXi
+          libXrandr
         ]
       }
   '';
