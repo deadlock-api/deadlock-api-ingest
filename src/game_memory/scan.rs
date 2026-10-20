@@ -157,14 +157,15 @@ pub(super) fn history_matches(buf: &[u8], now: u32) -> Vec<KnownMatch> {
 }
 
 /// The summary the game keeps for a match it shows (opened from a history or a profile):
-/// duration, eight zero bytes, start time, then the match id, 4-byte aligned.
+/// duration, four zero bytes, the winning team (0 or 1), start time, then the match id,
+/// 4-byte aligned.
 pub(super) fn match_summaries(buf: &[u8], now: u32) -> impl Iterator<Item = KnownMatch> {
     (12..buf.len()).step_by(4).filter_map(move |at| {
         let start = u32_at(buf, at)?;
         if !plausible_start(start, now) {
             return None;
         }
-        let [duration, zero_a, zero_b] = [12, 8, 4].map(|back| {
+        let [duration, zero, winning_team] = [12, 8, 4].map(|back| {
             at.checked_sub(back)
                 .and_then(|from| u32_at(buf, from))
                 .unwrap_or_default()
@@ -175,8 +176,8 @@ pub(super) fn match_summaries(buf: &[u8], now: u32) -> impl Iterator<Item = Know
             .copied()
             .map(u64::from_le_bytes)?;
         let plausible = (1..=MAX_DURATION).contains(&duration)
-            && zero_a == 0
-            && zero_b == 0
+            && zero == 0
+            && winning_team <= 1
             && (MIN_MATCH_ID..=MAX_MATCH_ID).contains(&match_id);
         plausible.then_some(KnownMatch {
             start,
@@ -305,6 +306,29 @@ mod tests {
                 match_id: 117_936_520,
                 duration: 1596
             }]
+        );
+    }
+
+    #[test]
+    fn reads_the_summary_of_a_match_team_1_won() {
+        // As read from the live game (Windows) for match 120604927, won by team 1.
+        let summary = |winning_team: u32| {
+            let mut buf = words(&[1046, 0, winning_team, 1_792_453_292]);
+            buf.extend(120_604_927_u64.to_le_bytes());
+            buf
+        };
+        assert_eq!(
+            match_summaries(&summary(1), 1_792_460_000).collect::<Vec<_>>(),
+            [KnownMatch {
+                start: 1_792_453_292,
+                match_id: 120_604_927,
+                duration: 1046
+            }]
+        );
+        assert_eq!(
+            match_summaries(&summary(2), 1_792_460_000).count(),
+            0,
+            "there is no team 2"
         );
     }
 }
