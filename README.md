@@ -73,12 +73,12 @@ chmod +x install-linux.sh
 Run the pre-built Docker image:
 
 ```bash
-docker run -d --restart unless-stopped \
-  -v ~/.steam/steam/appcache/httpcache:/root/.steam/steam/appcache/httpcache \
+docker run -d --restart unless-stopped --name deadlock-api-ingest \
+  -v ~/.steam/steam:/root/.steam/steam:ro \
   ghcr.io/deadlock-api/deadlock-api-ingest:latest
 ```
 
-> **Note**: The command above mounts the default Steam cache directory on Linux (`~/.steam/steam`). If your Steam installation is in a different location, please adjust the path accordingly. The container cannot see the game's process, so it only reads Steam's cache, not the game's memory.
+> **Note**: The command mounts the whole Steam directory, read-only: the tool only recognizes it with its `steamapps` folder, and reads your account ID from `config/loginusers.vdf` to credit your uploads. `~/.steam/steam` is Steam's default on Linux; use `~/.var/app/com.valvesoftware.Steam/.local/share/Steam` for the Flatpak and `~/Library/Application Support/Steam` on macOS. The container cannot see the game's process, so it only reads Steam's cache, not the game's memory.
 
 ### NixOS
 
