@@ -14,6 +14,9 @@ $AssetKeyword = "windows-latest.exe"
 $InstallDir = "$env:LOCALAPPDATA\$AppName"
 $FinalExecutableName = "$AppName.exe"
 $LogFile = "$env:TEMP\${AppName}-install.log"
+# The per-user autostart entry that deadlock-api-ingest-setup.exe and the status window use;
+# unlike a scheduled task it needs no admin rights
+$RunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 
 
 
@@ -325,6 +328,8 @@ try {
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
         }
     }
+    # The startup entry the status window adds; without this, answering N below leaves auto-start on
+    Remove-ItemProperty -Path $RunKey -Name $AppName -ErrorAction SilentlyContinue
 
     # Stop any running process
     Write-Host "Stopping running processes..." -ForegroundColor Cyan
