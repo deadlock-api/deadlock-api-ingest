@@ -5,6 +5,11 @@ with lib;
 let
   cfg = config.services.deadlock-api-ingest;
 in {
+  imports = [
+    (mkRemovedOptionModule [ "services" "deadlock-api-ingest" "steamUser" ]
+      "It had no effect: the service reads the Steam directory of `user`.")
+  ];
+
   options.services.deadlock-api-ingest = {
     enable = mkEnableOption "Deadlock API Ingest service";
 
@@ -18,9 +23,8 @@ in {
       type = types.str;
       example = "yourusername";
       description = ''
-        User account under which deadlock-api-ingest runs.
-        This should be the user who has Steam installed.
-        Leave unset to create a system user (requires manual Steam directory configuration).
+        The user who has Steam installed. The service runs as this user and reads
+        their Steam directory.
       '';
     };
 
@@ -39,26 +43,9 @@ in {
         service only ever opens Deadlock's /proc/<pid>/mem, read-only.
       '';
     };
-
-    steamUser = mkOption {
-      type = types.nullOr types.str;
-      default = cfg.user;
-      example = "yourusername";
-      description = ''
-        The user whose Steam directory should be monitored.
-        Defaults to the service user. Set this if running as a different user.
-      '';
-    };
   };
 
   config = mkIf cfg.enable {
-    assertions = [
-      {
-        assertion = cfg.user != "deadlock-api-ingest" || cfg.steamUser != null;
-        message = "You must set services.deadlock-api-ingest.user to your Steam user, or configure steamUser";
-      }
-    ];
-
     users.users = mkIf (cfg.user == "deadlock-api-ingest") {
       deadlock-api-ingest = {
         isSystemUser = true;
