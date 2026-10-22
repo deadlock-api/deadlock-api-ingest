@@ -21,7 +21,8 @@ HELPER_PATH="/usr/local/libexec/$APP_NAME/${APP_NAME}-memgrant"
 
 # Service and logging
 SERVICE_NAME=$APP_NAME
-LOG_FILE="/tmp/${APP_NAME}-install.log"
+# Per user: a fixed path in /tmp left by one user (or a sudo run) can't be written by the next.
+LOG_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/$APP_NAME/install.log"
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 SYSTEMD_SERVICE_FILE="$SYSTEMD_USER_DIR/${SERVICE_NAME}.service"
 
@@ -59,6 +60,7 @@ log() {
     echo -e "${color}${log_message}${NC}" >&2
 
     # The log file is written to separately and is unaffected.
+    mkdir -p "$(dirname "$LOG_FILE")"
     echo "$log_message" >> "$LOG_FILE"
 }
 
@@ -436,7 +438,7 @@ main() {
     local existing_uninstall_script="$INSTALL_DIR/uninstall-linux.sh"
     if [[ -f "$existing_uninstall_script" ]]; then
         log "INFO" "Found existing installation. Running uninstall script..."
-        if "$existing_uninstall_script" --silent 2>/dev/null; then
+        if "$existing_uninstall_script" --silent >> "$LOG_FILE" 2>&1; then
             log "SUCCESS" "Previous installation uninstalled successfully."
         else
             log "WARN" "Uninstall script failed, continuing with manual cleanup."
