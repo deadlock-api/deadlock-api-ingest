@@ -3,7 +3,8 @@
 # Deadlock API Ingest - Linux Installation Script
 # This script downloads and installs the deadlock-api-ingest application as a systemd user service
 
-set -euo pipefail
+# -E: the ERR trap below also fires inside functions, where all the work runs.
+set -Eeuo pipefail
 
 # --- Configuration ---
 APP_NAME="deadlock-api-ingest"
