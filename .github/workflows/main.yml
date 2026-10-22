@@ -382,10 +382,10 @@ jobs:
             irm https://github.com/deadlock-api/deadlock-api-ingest/releases/download/${{ needs.build.outputs.version }}/install-windows.ps1 | iex
             ```
 
-            **Linux (Bash - Run with sudo):**
-            Open a terminal and run the following command:
+            **Linux (Bash):**
+            Open a terminal and run the following command as your own user, without sudo:
             ```bash
-            curl -fsSL https://github.com/deadlock-api/deadlock-api-ingest/releases/download/${{ needs.build.outputs.version }}/install-linux.sh | sudo bash
+            curl -fsSL https://github.com/deadlock-api/deadlock-api-ingest/releases/download/${{ needs.build.outputs.version }}/install-linux.sh | bash
             ```
 
             ## Changes
