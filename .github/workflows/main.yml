@@ -349,6 +349,12 @@ jobs:
     needs: [ build, windows-smoke ]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    permissions:
+      contents: write
+      # For the build provenance attestation of the release files
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@v5
       - name: Download all artifacts
@@ -359,7 +365,13 @@ jobs:
         run: |
           mkdir -p ./release-assets
           find ./artifacts -name "deadlock-api-ingest-*" -type f -exec cp {} ./release-assets/ \;
+          cp install-linux.sh install-windows.ps1 ./release-assets/
+          (cd ./release-assets && sha256sum * > SHA256SUMS)
           ls -la ./release-assets/
+      - name: Attest release assets
+        uses: actions/attest@v4
+        with:
+          subject-path: ./release-assets/*
       - name: Create Release
         uses: softprops/action-gh-release@v2
         env:
@@ -392,8 +404,6 @@ jobs:
             - Latest updates from commit ${{ github.sha }}
           files: |
             ./release-assets/*
-            ./install-linux.sh
-            ./install-windows.ps1
             ./README.md
           draft: false
           prerelease: ${{ needs.build.outputs.is_prerelease }}
