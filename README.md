@@ -14,7 +14,7 @@ While Deadlock is closed, every 30 minutes, it also asks Steam's Game Coordinato
 - 🔒 **Privacy-focused**: Sends only match ids and salts, your Steam account ID and, for the Steam requests, your friends' account IDs
 - ⚡ **Lightweight**: Minimal CPU and memory usage
 - 🔄 **Automatic**: Continuously monitors for new matches as you play
-- 📦 **Runs without admin**: Application runs with standard user permissions (admin only needed for auto-start setup on Windows)
+- 📦 **Runs without admin**: Application runs with standard user permissions (auto-start included)
 
 ## Resources
 
@@ -46,7 +46,7 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/deadlock-api/deadlock-
 .\install-windows.ps1
 ```
 
-> **⚠️ Auto-Start Permissions**: If you want the application to start automatically on system boot, you'll need to run PowerShell as Administrator. However, **the application itself runs without admin privileges** - you only need admin rights to create the scheduled task for auto-start. If you run the installer without admin rights, you can still install and run the application manually.
+> **Auto-Start**: run as Administrator, the installer starts the application from a scheduled task; without admin rights it adds a startup entry for your user instead, like `deadlock-api-ingest-setup.exe`. **The application itself always runs without admin privileges.**
 >
 > The scheduled task runs while you are logged in. It needs your interactive logon to decrypt the saved Steam session (Windows DPAPI) for match-salt recovery via the Steam Game Coordinator.
 
@@ -249,7 +249,7 @@ If you prefer to install manually, you can download the appropriate binary from 
 ### Windows Manual Setup
 1. Download `deadlock-api-ingest-windows-latest.exe`
 2. Place it in `%LOCALAPPDATA%\deadlock-api-ingest\`
-3. Create a scheduled task that runs on user login, only while the user is logged on (no admin required)
+3. Add it to your startup entries (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`), as the installer does without admin rights
 
 ### Linux Manual Setup
 1. Download `deadlock-api-ingest-ubuntu-latest`
