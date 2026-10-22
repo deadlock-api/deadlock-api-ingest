@@ -13,6 +13,9 @@ ASSET_KEYWORD="ubuntu-latest" # Keyword to find in the release asset filename
 
 # Installation paths (User-level, no root required)
 INSTALL_DIR="$HOME/.local/share/$APP_NAME"
+# Outside INSTALL_DIR, which the old installation's uninstaller deletes, and on the same
+# filesystem, so the checked binary can be moved into place.
+DOWNLOAD_PATH="$HOME/.local/share/.$APP_NAME-download"
 BIN_DIR="$HOME/.local/bin"
 FINAL_EXECUTABLE_NAME=$APP_NAME
 
@@ -167,6 +170,24 @@ download_file() {
 
     if [[ "$actual_size" != "$expected_size" ]]; then
         log "ERROR" "File size mismatch! Expected: $expected_size bytes, Got: $actual_size bytes."
+        exit 1
+    fi
+}
+
+# Runs the downloaded binary once, so one this system can't run (e.g. too old a glibc) stops
+# the install before the current installation is removed.
+check_binary_runs() {
+    local path="$1"
+    chmod +x "$path"
+
+    local version_output line
+    if ! version_output=$("$path" --version 2>&1); then
+        log "ERROR" "The downloaded binary does not run on this system:"
+        while IFS= read -r line; do log "ERROR" "  $line"; done <<< "$version_output"
+        if [[ "$version_output" == *GLIBC_* ]]; then
+            log "INFO" "It needs a newer glibc than this system has; a newer release of your distribution has one."
+        fi
+        rm -f "$path"
         exit 1
     fi
 }
@@ -443,6 +464,9 @@ main() {
         exit 1
     fi
 
+    download_file "$download_url" "$DOWNLOAD_PATH" "$size"
+    check_binary_runs "$DOWNLOAD_PATH"
+
     # Try to run uninstall script if it exists (clean uninstall before fresh install)
     local existing_uninstall_script="$INSTALL_DIR/uninstall-linux.sh"
     if [[ -f "$existing_uninstall_script" ]]; then
@@ -463,12 +487,8 @@ main() {
     # Ensure installation directory exists
     mkdir -p "$INSTALL_DIR"
 
-    local temp_download_path="$INSTALL_DIR/${APP_NAME}-${version}"
-    download_file "$download_url" "$temp_download_path" "$size"
-
     local final_executable_path="$INSTALL_DIR/$FINAL_EXECUTABLE_NAME"
-    mv "$temp_download_path" "$final_executable_path"
-    chmod +x "$final_executable_path"
+    mv "$DOWNLOAD_PATH" "$final_executable_path"
 
     # Create bin directory if it doesn't exist
     mkdir -p "$BIN_DIR"
