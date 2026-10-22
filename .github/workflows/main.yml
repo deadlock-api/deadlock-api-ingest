@@ -92,9 +92,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Install protoc
-        uses: arduino/setup-protoc@v3
+        uses: taiki-e/install-action@v2
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          tool: protoc
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -122,9 +122,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Install protoc
-        uses: arduino/setup-protoc@v3
+        uses: taiki-e/install-action@v2
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          tool: protoc
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -184,9 +184,9 @@ jobs:
         with:
           fetch-depth: 0  # Fetch full history for proper versioning
       - name: Install protoc
-        uses: arduino/setup-protoc@v3
+        uses: taiki-e/install-action@v2
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          tool: protoc
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
