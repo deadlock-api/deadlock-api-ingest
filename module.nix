@@ -4,8 +4,10 @@ with lib;
 
 let
   cfg = config.services.deadlock-api-ingest;
-  # The only place the service writes: dirs::data_dir() for the service user.
-  dataDir = "/home/${cfg.user}/.local/share/deadlock-api-ingest";
+  # The only place the service writes: dirs::data_dir() for the service user, under the $HOME
+  # systemd sets from their account. Users not declared in users.users fall back to /home.
+  home = config.users.users.${cfg.user}.home or "/home/${cfg.user}";
+  dataDir = "${home}/.local/share/deadlock-api-ingest";
 in {
   options.services.deadlock-api-ingest = {
     enable = mkEnableOption "Deadlock API Ingest service";
