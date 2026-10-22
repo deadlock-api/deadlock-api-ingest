@@ -420,6 +420,14 @@ prompt_for_autostart() {
 
 # --- Main Installation Logic ---
 main() {
+    # Everything goes into the home of the user running the script, and the service is that
+    # user's systemd service, so under sudo it would all be root's.
+    if [[ $EUID -eq 0 ]]; then
+        echo -e "${RED}Run the installer as your own user: run the same command again without sudo.${NC}" >&2
+        echo "It installs for the user who runs it and asks for your password itself if it needs it." >&2
+        exit 1
+    fi
+
     log "INFO" "Starting Deadlock API Ingest installation..."
     log "INFO" "Log file is available at: $LOG_FILE"
 
