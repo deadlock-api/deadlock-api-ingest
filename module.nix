@@ -4,6 +4,8 @@ with lib;
 
 let
   cfg = config.services.deadlock-api-ingest;
+  # The only place the service writes: dirs::data_dir() for the service user.
+  dataDir = "/home/${cfg.user}/.local/share/deadlock-api-ingest";
 in {
   options.services.deadlock-api-ingest = {
     enable = mkEnableOption "Deadlock API Ingest service";
@@ -83,6 +85,8 @@ in {
         User = cfg.user;
         Group = cfg.group;
         ExecStart = "${cfg.package}/bin/deadlock-api-ingest" + optionalString (!cfg.readGameMemory) " --no-memory";
+        # A fresh user has no data directory yet; runuser creates it owned by the user, not root.
+        ExecStartPre = "+${pkgs.util-linux}/bin/runuser -u ${cfg.user} -- ${pkgs.coreutils}/bin/mkdir -p ${dataDir}";
         Restart = "on-failure";
         RestartSec = "10s";
 
@@ -98,18 +102,11 @@ in {
         ProtectSystem = "strict";
         # Allow reading home directory for Steam cache
         ProtectHome = "read-only";
-        # Allow writing to data directory and Steam user's home
-        ReadWritePaths = [ 
-          "/var/lib/deadlock-api-ingest"
-          "/home/${cfg.user}/.local/share/deadlock-api-ingest"
-          "/home/${cfg.user}/.local/share/Steam"
-        ];
+        # Steam's directory only needs reading, which ProtectHome allows. "-" skips the data
+        # directory while it doesn't exist: without it every command of the unit, ExecStartPre
+        # too, fails with 226/NAMESPACE before the directory can be created.
+        ReadWritePaths = [ "-${dataDir}" ];
       };
     };
-
-    # Create data directory if needed
-    systemd.tmpfiles.rules = [
-      "d /var/lib/deadlock-api-ingest 0750 ${cfg.user} ${cfg.group} -"
-    ];
   };
 }
