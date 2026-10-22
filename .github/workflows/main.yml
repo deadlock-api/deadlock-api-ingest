@@ -403,6 +403,10 @@ jobs:
             ```bash
             curl -fsSL https://github.com/deadlock-api/deadlock-api-ingest/releases/download/${{ needs.build.outputs.version }}/install-linux.sh | bash
             ```
+            Without curl (Ubuntu's desktop install has wget instead):
+            ```bash
+            wget -O- https://github.com/deadlock-api/deadlock-api-ingest/releases/download/${{ needs.build.outputs.version }}/install-linux.sh | bash
+            ```
 
             ## Changes
             - Latest updates from commit ${{ github.sha }}
