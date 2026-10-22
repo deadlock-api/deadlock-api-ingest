@@ -69,6 +69,8 @@ chmod +x install-linux.sh
 > **Note**: The installation scripts automatically download the latest release binaries from GitHub and set up the application to run on user login. The application installs to your user directory and does not require elevated privileges.
 >
 > **Reading the game's memory**: most distributions only let a program read another's memory if it started it, and Steam starts Deadlock. The installer therefore offers a small helper, `/usr/local/libexec/deadlock-api-ingest/deadlock-api-ingest-memgrant`, which asks for your password once. It is the only part holding that right (`cap_sys_ptrace`), opens nothing but Deadlock's memory, read-only and for your user, and hands it to the application. Without it, starting the game through the [launch option](#steam-launch-option-alternative-to-background-service) works too.
+>
+> **Packaging**: a distribution package can ship the helper as `/usr/libexec/deadlock-api-ingest/deadlock-api-ingest-memgrant` or `/usr/lib/deadlock-api-ingest/deadlock-api-ingest-memgrant`, root-owned with `cap_sys_ptrace=ep`; the application looks there too.
 
 ### Docker
 
