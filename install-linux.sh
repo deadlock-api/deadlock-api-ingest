@@ -85,12 +85,17 @@ execute_quietly() {
 }
 
 # Downloads $1 to $2, with wget where curl isn't installed (Ubuntu's desktop install has no curl).
+# $2 is replaced only once the download succeeds: wget empties its output file on a 404.
 fetch() {
+    local part="$2.part"
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --user-agent "Bash-Installer" -o "$2" "$1" 2>> "$LOG_FILE"
+        curl -fsSL --user-agent "Bash-Installer" -o "$part" "$1" 2>> "$LOG_FILE"
     else
-        wget -q --user-agent="Bash-Installer" -O "$2" "$1" 2>> "$LOG_FILE"
-    fi
+        wget -q --user-agent="Bash-Installer" -O "$part" "$1" 2>> "$LOG_FILE"
+    fi && mv -f "$part" "$2" && return 0
+    echo "Download failed: $1" >> "$LOG_FILE"
+    rm -f "$part"
+    return 1
 }
 
 # Function to check for required dependencies
