@@ -190,9 +190,9 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "build-cache-${{ runner.os }}-${{ runner.arch }}-stable"
-          # Per runner image: build scripts cached on a newer Ubuntu need its glibc to run.
-          key: "${{ matrix.target }}-${{ matrix.platform }}"
+          # Per runner image, not shared with lint and test on ubuntu-latest: C code compiled
+          # against a newer glibc's headers doesn't link on ubuntu-22.04.
+          shared-key: "build-${{ matrix.platform }}-${{ runner.arch }}-stable"
       - name: Update Rust toolchain
         run: |
           rustup override set stable
