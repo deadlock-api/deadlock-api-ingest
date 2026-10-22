@@ -13,9 +13,10 @@ use crate::paths::{self, APP_NAME};
 /// Whether a long-running watcher holds the instance lock. Covers every way it can be
 /// running (systemd unit, scheduled task, `Run` key, launch wrapper, manual start).
 pub(crate) fn is_running() -> bool {
-    let Some(path) = paths::instance_lock_path() else {
-        return false;
-    };
+    paths::instance_lock_path().is_some_and(|path| lock_held(&path))
+}
+
+fn lock_held(path: &Path) -> bool {
     let Ok(file) = OpenOptions::new()
         .create(true)
         .write(true)
@@ -24,8 +25,10 @@ pub(crate) fn is_running() -> bool {
     else {
         return false;
     };
-    // On success the lock is released again when `file` drops at the end of this call.
-    matches!(file.try_lock(), Err(TryLockError::WouldBlock))
+    // Shared, so concurrent probes (the GUI's refresh and `ensure_started` run in parallel)
+    // don't mistake each other for the watcher, whose lock is exclusive. On success the lock
+    // is released again when `file` drops at the end of this call.
+    matches!(file.try_lock_shared(), Err(TryLockError::WouldBlock))
 }
 
 /// Installs the watcher as a per-user autostart service if it isn't one yet and starts it.
@@ -234,10 +237,37 @@ mod platform {
     }
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_concurrent_probes_dont_see_each_other() {
+        let path =
+            std::env::temp_dir().join(format!("deadlock-probe-test-{}.lock", std::process::id()));
+        let false_positives: usize = std::thread::scope(|s| {
+            let probes: Vec<_> = (0..8)
+                .map(|_| s.spawn(|| (0..500).filter(|_| lock_held(&path)).count()))
+                .collect();
+            probes.into_iter().map(|p| p.join().unwrap()).sum()
+        });
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(false_positives, 0);
+    }
+
+    #[test]
+    fn test_probe_sees_the_watchers_lock() {
+        let path =
+            std::env::temp_dir().join(format!("deadlock-watcher-test-{}.lock", std::process::id()));
+        let watcher = std::fs::File::create(&path).unwrap();
+        watcher.try_lock().unwrap();
+        assert!(lock_held(&path));
+        drop(watcher);
+        assert!(!lock_held(&path));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_unit_file_points_at_exe() {
         let unit = platform::unit_file(Path::new("/opt/deadlock-api-ingest"));
