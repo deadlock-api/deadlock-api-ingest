@@ -107,6 +107,10 @@ rm -f "$HOME/.local/share/applications/$APP_NAME.desktop"
 rm -f "$HOME/.local/share/applications/$APP_NAME-once.desktop"
 rm -f "$HOME/.local/share/applications/$APP_NAME-status.desktop"
 rm -f "$HOME/.local/share/icons/hicolor/256x256/apps/$APP_NAME.png"
+# The installer's log; a reinstall (--silent) is writing to it right now.
+if [[ "$SILENT" == false ]]; then
+    rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/$APP_NAME"
+fi
 
 # The memory helper is root-owned. A reinstall (--silent) keeps it.
 HELPER_DIR="/usr/local/libexec/$APP_NAME"
