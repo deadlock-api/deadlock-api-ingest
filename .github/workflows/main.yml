@@ -164,7 +164,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: ubuntu-latest
+          # The binary needs the build runner's glibc or newer: 22.04's (2.35) also runs on
+          # Ubuntu 22.04 and Debian 12, where a 24.04 build (2.38) doesn't start. The asset
+          # keeps its name, which the installers and the self-updater look for.
+          - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             binary_name: deadlock-api-ingest
             asset_name: deadlock-api-ingest-ubuntu-latest
@@ -188,7 +191,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "build-cache-${{ runner.os }}-${{ runner.arch }}-stable"
-          key: "${{ matrix.target }}"
+          # Per runner image: build scripts cached on a newer Ubuntu need its glibc to run.
+          key: "${{ matrix.target }}-${{ matrix.platform }}"
       - name: Update Rust toolchain
         run: |
           rustup override set stable
@@ -216,7 +220,7 @@ jobs:
       - name: Build release binary
         run: cargo build --locked --release --target ${{ matrix.target }}
       - name: Prepare binary (Linux)
-        if: matrix.platform == 'ubuntu-latest'
+        if: matrix.platform == 'ubuntu-22.04'
         run: |
           cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} ${{ matrix.asset_name }}
           # The memory helper install-linux.sh sets up; its name must not contain "ubuntu-latest".
@@ -237,7 +241,7 @@ jobs:
           path: ${{ matrix.asset_name }}
           retention-days: 1
       - name: Upload memory helper artifact (Linux)
-        if: matrix.platform == 'ubuntu-latest'
+        if: matrix.platform == 'ubuntu-22.04'
         uses: actions/upload-artifact@v5
         with:
           name: deadlock-api-ingest-memgrant-linux
