@@ -8,8 +8,10 @@ The application scans Steam's local HTTP cache directory (`Steam/appcache/httpca
 
 While Deadlock runs, it also reads match salts from the game's memory, read-only: the replies the game gets when it loads a match, and replay addresses it keeps. That covers matches whose files Steam hasn't downloaded. It never writes to or injects anything into the game. Pass `--no-memory` to turn this off.
 
+While Deadlock is closed, every 30 minutes, it also asks Steam's Game Coordinator for match salts deadlock-api doesn't have yet. It logs in with the saved session of every Steam account on the PC that has "remember me" on (the refresh token in Steam's `local.vdf`), checks which of that account's Steam friends play Deadlock, and fetches their new matches first, then matches from deadlock-api's list of missing ones. Each account makes at most 40 metadata requests and 20 friend match-history requests a day. The salts go to deadlock-api like the cache ones, credited to the account that fetched them. Pass `--no-gc` to turn this off; the launch option below never runs it.
+
 **Key Features:**
-- 🔒 **Privacy-focused**: Only reads match ids and salts, from Steam's cache and the game's memory
+- 🔒 **Privacy-focused**: Sends only match ids and salts, your Steam account ID and, for the Steam requests, your friends' account IDs
 - ⚡ **Lightweight**: Minimal CPU and memory usage
 - 🔄 **Automatic**: Continuously monitors for new matches as you play
 - 📦 **Runs without admin**: Application runs with standard user permissions (admin only needed for auto-start setup on Windows)
@@ -78,7 +80,7 @@ docker run -d --restart unless-stopped --name deadlock-api-ingest \
   ghcr.io/deadlock-api/deadlock-api-ingest:latest
 ```
 
-> **Note**: The command mounts the whole Steam directory, read-only: the tool only recognizes it with its `steamapps` folder, and reads your account ID from `config/loginusers.vdf` to credit your uploads. `~/.steam/steam` is Steam's default on Linux; use `~/.var/app/com.valvesoftware.Steam/.local/share/Steam` for the Flatpak and `~/Library/Application Support/Steam` on macOS. The container cannot see the game's process, so it only reads Steam's cache, not the game's memory.
+> **Note**: The command mounts the whole Steam directory, read-only: the tool only recognizes it with its `steamapps` folder, and reads your account ID from `config/loginusers.vdf` to credit your uploads. `~/.steam/steam` is Steam's default on Linux; use `~/.var/app/com.valvesoftware.Steam/.local/share/Steam` for the Flatpak and `~/Library/Application Support/Steam` on macOS. The container cannot see the game's process, so it only reads Steam's cache, not the game's memory. With the whole Steam directory mounted it also runs the Steam requests described in [How It Works](#how-it-works) when it finds a saved session there; add `--no-gc` after the image name to turn them off.
 
 ### NixOS
 
@@ -257,6 +259,7 @@ If you prefer to install manually, you can download the appropriate binary from 
 
 - Only reads Steam's local cache files and, while Deadlock runs, the game's memory (read-only, `--no-memory` turns it off)
 - **Minimal Data**: Looks only for match IDs and salts. It sends those and your Steam account ID (to credit your uploads) to the Deadlock API, and keeps a local log of what it submitted (`fetched-salts.jsonl`)
+- **Steam sessions**: The Steam requests use the saved sessions of the Steam accounts on the PC. The sessions go only to Steam, never to deadlock-api. To find friends' new matches, the tool sends your Steam friends' account IDs to deadlock-api. `--no-gc` turns all of this off
 - **Read-Only Access**: Never modifies files and never writes to or injects anything into the game
 - **Open Source**: Full source code is available for review and audit
 
