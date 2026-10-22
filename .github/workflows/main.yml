@@ -15,7 +15,9 @@ permissions:
   security-events: write
 
 concurrency:
-  cancel-in-progress: true
+  # Master runs publish releases and the Docker image, so they queue instead of cancelling
+  # each other halfway through a publish; other branches only need their newest run.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
   group: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
@@ -202,7 +204,7 @@ jobs:
           SHORT_SHA=$(git rev-parse --short HEAD)
           VERSION="v${CARGO_VERSION}"
           VERSION_SHA="v${CARGO_VERSION}-${SHORT_SHA}"
-          EXISTING_TAGS=$(gh release list --repo ${{ github.repository }} --json tagName -q '.[].tagName' || echo "")
+          EXISTING_TAGS=$(gh release list --repo ${{ github.repository }} --limit 1000 --json tagName -q '.[].tagName' || echo "")
           if echo "$EXISTING_TAGS" | grep -x "$VERSION"; then
             echo "Release for version $VERSION already exists. Creating a pre-release."
             echo "version=$VERSION_SHA" >> $GITHUB_OUTPUT
