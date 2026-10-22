@@ -58,6 +58,12 @@ Run this command:
 curl -fsSL https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install-linux.sh | bash
 ```
 
+Without curl (Ubuntu's desktop install has wget instead):
+
+```bash
+wget -nv -O- https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install-linux.sh | bash
+```
+
 Or download and run manually:
 
 ```bash

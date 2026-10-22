@@ -9,7 +9,9 @@ set -Eeuo pipefail
 # --- Configuration ---
 APP_NAME="deadlock-api-ingest"
 GITHUB_REPO="deadlock-api/deadlock-api-ingest"
-ASSET_KEYWORD="ubuntu-latest" # Keyword to find in the release asset filename
+# The latest release's assets, by name; no API call or JSON parsing needed.
+RELEASE_URL="https://github.com/$GITHUB_REPO/releases/latest/download"
+MAIN_ASSET="${APP_NAME}-ubuntu-latest"
 
 # Installation paths (User-level, no root required)
 INSTALL_DIR="$HOME/.local/share/$APP_NAME"
@@ -82,20 +84,26 @@ execute_quietly() {
     fi
 }
 
+# Downloads $1 to $2, with wget where curl isn't installed (Ubuntu's desktop install has no curl).
+fetch() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --user-agent "Bash-Installer" -o "$2" "$1" 2>> "$LOG_FILE"
+    else
+        wget -q --user-agent="Bash-Installer" -O "$2" "$1" 2>> "$LOG_FILE"
+    fi
+}
+
 # Function to check for required dependencies
 check_dependencies() {
-    local missing_deps=()
-    for pkg in curl wget jq; do
-        command -v "$pkg" >/dev/null 2>&1 || missing_deps+=("$pkg")
-    done
-
-    if [[ ${#missing_deps[@]} -eq 0 ]]; then
+    if command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; then
         log "SUCCESS" "All dependencies are already installed."
         return 0
     fi
 
-    log "WARN" "Missing dependencies: ${missing_deps[*]}"
-    log "INFO" "Please install them using your package manager. For example:"
+    # Either curl or wget is enough; suggest curl.
+    local missing_deps=(curl)
+    log "WARN" "Neither curl nor wget is installed."
+    log "INFO" "Install one with your package manager, for example:"
 
     if command -v apt-get >/dev/null 2>&1; then
         log "INFO" "  sudo apt-get install ${missing_deps[*]}"
@@ -117,40 +125,10 @@ check_dependencies() {
     exit 1
 }
 
-# Function to get latest release info from GitHub API
-get_latest_release() {
-    local api_url="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
-
-    local response
-    response=$(curl -s -f --user-agent "Bash-Installer" "$api_url") || {
-        log "ERROR" "Failed to fetch release information from GitHub API."
-        exit 1
-    }
-
-    local asset_info
-    asset_info=$(echo "$response" | jq --arg keyword "$ASSET_KEYWORD" '([.assets[] | select(.name | contains($keyword))])[0]')
-
-    if [[ -z "$asset_info" || "$asset_info" == "null" ]]; then
-        log "ERROR" "Could not find a release asset containing the keyword: '$ASSET_KEYWORD'"
-        log "INFO" "Available assets are: $(echo "$response" | jq -r '.assets[].name')"
-        exit 1
-    fi
-
-    local version download_url size helper_url
-    version=$(echo "$response" | jq -r '.tag_name')
-    download_url=$(echo "$asset_info" | jq -r '.browser_download_url')
-    size=$(echo "$asset_info" | jq -r '.size')
-    helper_url=$(echo "$response" | jq -r --arg name "$HELPER_ASSET" '[.assets[] | select(.name == $name)][0].browser_download_url // empty')
-
-    # This is the only line that should print to stdout, to be captured by the calling variable.
-    echo "$version|$download_url|$size|$helper_url"
-}
-
-# Function to download file with progress
+# Function to download file
 download_file() {
     local url="$1"
     local output_path="$2"
-    local expected_size="$3"
 
     mkdir -p "$(dirname "$output_path")"
 
@@ -158,20 +136,13 @@ download_file() {
     echo "Downloading from: $url" >> "$LOG_FILE"
     echo "Saving to: $output_path" >> "$LOG_FILE"
 
-    if ! wget --progress=dot:giga --user-agent="Bash-Installer" -O "$output_path" "$url" 2>> "$LOG_FILE"; then
-        log "ERROR" "Download failed."
+    if ! fetch "$url" "$output_path"; then
+        log "ERROR" "Download failed (details in $LOG_FILE)."
+        rm -f "$output_path"
         exit 1
     fi
 
     log "SUCCESS" "Download complete."
-
-    local actual_size
-    actual_size=$(stat -c%s "$output_path")
-
-    if [[ "$actual_size" != "$expected_size" ]]; then
-        log "ERROR" "File size mismatch! Expected: $expected_size bytes, Got: $actual_size bytes."
-        exit 1
-    fi
 }
 
 # Runs the downloaded binary once, so one this system can't run (e.g. too old a glibc) stops
@@ -195,11 +166,10 @@ check_binary_runs() {
 # Installs the app icon into the user's icon theme, so desktop entries can use Icon=$APP_NAME.
 # Best effort: entries without it still work, just with a generic icon.
 install_icon() {
-    local version="$1"
     local icon_dir="$HOME/.local/share/icons/hicolor/256x256/apps"
-    local icon_url="https://raw.githubusercontent.com/$GITHUB_REPO/$version/assets/icon.png"
+    local icon_url="https://raw.githubusercontent.com/$GITHUB_REPO/master/assets/icon.png"
 
-    if ! mkdir -p "$icon_dir" 2>/dev/null || ! curl -fsSL "$icon_url" -o "$icon_dir/$APP_NAME.png" 2>> "$LOG_FILE"; then
+    if ! mkdir -p "$icon_dir" 2>/dev/null || ! fetch "$icon_url" "$icon_dir/$APP_NAME.png"; then
         log "WARN" "Could not install the app icon; shortcuts will use a generic icon."
         return 1
     fi
@@ -344,13 +314,8 @@ EOF
 # distributions only let a program read another's memory if it started it, and Steam starts
 # the game, so the helper gets that one right (cap_sys_ptrace) and is kept root-owned.
 install_memory_helper() {
-    local helper_url="$1"
     if [[ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" == "0" ]]; then
         log "INFO" "This system lets the service read Deadlock's memory without a helper."
-        return 0
-    fi
-    if [[ -z "$helper_url" ]]; then
-        log "WARN" "This release has no memory helper; match salts are read from Steam's cache only."
         return 0
     fi
 
@@ -379,7 +344,7 @@ install_memory_helper() {
 
     local helper_tmp
     helper_tmp=$(mktemp)
-    if ! curl -fsSL "$helper_url" -o "$helper_tmp"; then
+    if ! fetch "$RELEASE_URL/$HELPER_ASSET" "$helper_tmp"; then
         log "WARN" "Could not download the memory helper; skipping it."
         rm -f "$helper_tmp"
         return 0
@@ -454,17 +419,7 @@ main() {
 
     check_dependencies
 
-    local release_info
-    release_info=$(get_latest_release)
-    local version download_url size helper_url
-    IFS='|' read -r version download_url size helper_url <<< "$release_info"
-
-    if [[ -z "$version" || -z "$download_url" ]]; then
-        log "ERROR" "Failed to parse release information. Cannot continue."
-        exit 1
-    fi
-
-    download_file "$download_url" "$DOWNLOAD_PATH" "$size"
+    download_file "$RELEASE_URL/$MAIN_ASSET" "$DOWNLOAD_PATH"
     check_binary_runs "$DOWNLOAD_PATH"
 
     # Try to run uninstall script if it exists (clean uninstall before fresh install)
@@ -502,7 +457,7 @@ main() {
     local uninstall_script_path="$INSTALL_DIR/uninstall-linux.sh"
     local uninstall_script_url="https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/uninstall-linux.sh"
 
-    if curl -fsSL "$uninstall_script_url" -o "$uninstall_script_path"; then
+    if fetch "$uninstall_script_url" "$uninstall_script_path"; then
         chmod +x "$uninstall_script_path"
         log "SUCCESS" "Uninstall script downloaded to: $uninstall_script_path"
     else
@@ -510,7 +465,7 @@ main() {
         log "INFO" "You can manually download it from: $uninstall_script_url"
     fi
 
-    install_memory_helper "$helper_url"
+    install_memory_helper
 
     # Create the main service (but don't enable/start it yet)
     manage_service "create" "$final_executable_path"
@@ -603,7 +558,7 @@ main() {
     # The app-menu entry everyone gets (search "Deadlock"): opens the status window, which
     # also starts the background service if it isn't running.
     # Neither is required for the tool to work, so failures only warn.
-    install_icon "$version" || true
+    install_icon || true
     if ! create_desktop_shortcut "$final_executable_path" "--gui" "Deadlock API Ingest" "See the Deadlock matches you have sent to trackers" "$APP_NAME-status"; then
         log "WARN" "Could not create the app menu entry. Open the status window with: $final_executable_path --gui"
     fi
