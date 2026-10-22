@@ -366,6 +366,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ needs.build.outputs.version }}
+          # Without it the tag goes on master's head at release time, not on the commit built.
+          target_commitish: ${{ github.sha }}
           name: |
             ${{ needs.build.outputs.is_prerelease == 'true' && 'Nightly - ' || '' }}Deadlock API Ingest ${{ needs.build.outputs.version }}
           body: |
