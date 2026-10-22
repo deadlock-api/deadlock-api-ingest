@@ -143,18 +143,10 @@ function Invoke-Quietly {
     }
 }
 
-# Function to check for Administrator privileges
+# Whether this PowerShell runs as Administrator, which creating the scheduled task needs
 function Test-IsAdmin {
-    try {
-        $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
-        $isAdmin = (New-Object Security.Principal.WindowsPrincipal $currentUser).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-        if (-not $isAdmin) {
-            Invoke-FatalError -ErrorMessage "Administrator privileges are required to create scheduled tasks." -DetailedError "Please run this script as an Administrator."
-        }
-    }
-    catch {
-        Invoke-FatalError -ErrorMessage "Failed to check Administrator privileges." -DetailedError $_.Exception.Message
-    }
+    $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
+    return (New-Object Security.Principal.WindowsPrincipal $currentUser).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
 # Function to get the latest release from GitHub
@@ -416,9 +408,9 @@ try {
     Write-Host "      AUTO-START SETUP (OPTIONAL)      " -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "Auto-start will automatically start the application when the system boots." -ForegroundColor White
+    Write-Host "Auto-start will automatically start the application when you log in." -ForegroundColor White
     Write-Host "This ensures the application is always running in the background." -ForegroundColor White
-    Write-Host "CAREFUL: This requires Administrator privileges to create a scheduled task." -ForegroundColor Yellow
+    Write-Host "As Administrator this creates a scheduled task, otherwise a startup entry for your user." -ForegroundColor White
     Write-Host ""
     Write-Host "Enable auto-start on system boot? (Y/N): " -ForegroundColor Yellow -NoNewline
 
@@ -479,10 +471,16 @@ try {
 
     Write-Host ""
 
-    if ($enableAutoStart) {
+    if ($enableAutoStart -and -not (Test-IsAdmin)) {
+        Write-InstallLog -Level 'INFO' "User chose to enable auto-start (startup entry, not running as Administrator)."
+        # A new profile may not have the key yet; New-Item -Force would wipe an existing one.
+        if (-not (Test-Path $RunKey)) { New-Item -Path $RunKey | Out-Null }
+        Set-ItemProperty -Path $RunKey -Name $AppName -Value "`"$downloadPath`""
+        Start-Process -FilePath $downloadPath -WindowStyle Hidden
+        Write-InstallLog -Level 'SUCCESS' "Application started; it starts again every time you log in."
+    } elseif ($enableAutoStart) {
         Write-InstallLog -Level 'INFO' "User chose to enable auto-start."
         # Create the main scheduled task
-        Test-IsAdmin
         Set-StartupTask -Action 'Create' -ExecutablePath $downloadPath
 
         # Start the main task
@@ -600,11 +598,9 @@ if (-not $script:HasErrors) {
     Write-InstallLog -Level 'SUCCESS' "Deadlock API Ingest has been installed successfully!"
 
     # Check if auto-start is enabled
-    $autoStartEnabled = $false
     try {
         $task = Get-ScheduledTask -TaskName $AppName -ErrorAction SilentlyContinue
-        if ($task) {
-            $autoStartEnabled = $true
+        if ($task -or (Get-ItemProperty -Path $RunKey -Name $AppName -ErrorAction SilentlyContinue)) {
             Write-Host "[+] Auto-start is enabled" -ForegroundColor Green
             Write-Host "    The application will start automatically every time you log in." -ForegroundColor White
         } else {
@@ -624,7 +620,7 @@ if (-not $script:HasErrors) {
     Write-Host "  Logs rotate daily and the last 7 days are kept." -ForegroundColor White
     Write-Host " "
 
-    if ($autoStartEnabled) {
+    if ($task) {
         Write-Host "You can manage the main task via the Task Scheduler (taskschd.msc) or PowerShell:" -ForegroundColor White
         Write-Host "  - Check status:  Get-ScheduledTask -TaskName $AppName | Get-ScheduledTaskInfo" -ForegroundColor Yellow
         Write-Host "  - Run manually:  Start-ScheduledTask -TaskName $AppName" -ForegroundColor Yellow
