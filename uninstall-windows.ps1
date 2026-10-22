@@ -15,7 +15,7 @@ if (-not $Silent) {
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "This will remove:" -ForegroundColor Yellow
-    Write-Host "  - All scheduled tasks (current and old versions)" -ForegroundColor White
+    Write-Host "  - All scheduled tasks (current and old versions) and the startup entry" -ForegroundColor White
     Write-Host "  - Running processes" -ForegroundColor White
     Write-Host "  - Desktop shortcuts" -ForegroundColor White
     Write-Host "  - Installation directory: $InstallDir" -ForegroundColor White
@@ -47,6 +47,13 @@ foreach ($taskName in $tasksToRemove) {
         Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
     }
+}
+
+# The per-user startup entry, set by the installer without admin rights or by the status window
+$RunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+if (Get-ItemProperty -Path $RunKey -Name $AppName -ErrorAction SilentlyContinue) {
+    Write-Host "  - Removing startup entry" -ForegroundColor Gray
+    Remove-ItemProperty -Path $RunKey -Name $AppName -ErrorAction SilentlyContinue
 }
 
 # Stop any running process
