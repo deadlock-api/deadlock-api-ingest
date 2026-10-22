@@ -206,7 +206,7 @@ fn main() {
     let Ok(steam_dir) = steamlocate::SteamDir::locate() else {
         error!("Could not find Steam directory. Waiting 30s before exiting.");
         std::thread::sleep(core::time::Duration::from_secs(30));
-        return;
+        std::process::exit(1);
     };
     let steam_path = steam_dir.path();
     let mut cache_dir = steam_path.join("appcache").join("httpcache");
@@ -236,7 +236,7 @@ fn main() {
                 cache_dir.display()
             );
             std::thread::sleep(core::time::Duration::from_secs(30));
-            return;
+            std::process::exit(1);
         }
     }
 
