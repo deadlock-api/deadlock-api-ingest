@@ -1,7 +1,7 @@
 //! The Steam Game Coordinator boundary: recover per-match salts client-side through a
 //! remembered account (`steam-vent` + `CMsgClientToGcGetMatchMetaData`), plus the account's
-//! friends list, their persona state and match histories. One CM+GC session per pass;
-//! poisoned on any failure so the next pass reconnects cleanly.
+//! friends list, their persona state and match histories. One CM+GC session per account
+//! per pass, closed with [`GcSession::close`] when the account is done.
 
 use core::future::Future;
 use core::time::Duration;
@@ -9,6 +9,8 @@ use std::collections::{HashMap, HashSet};
 
 use futures_util::StreamExt as _;
 use prost::Message as _;
+use steam_vent::proto::enums_clientserver::EMsg;
+use steam_vent::proto::steammessages_clientserver::CMsgClientGamesPlayed;
 use steam_vent::proto::steammessages_clientserver_friends::{
     CMsgClientFriendsList, CMsgClientPersonaState, CMsgClientRequestFriendData,
 };
@@ -43,6 +45,8 @@ const PERSONA_FLAGS_STATUS_PRESENCE_LAST_SEEN: u32 = 1 | 16 | 64;
 
 // A stalled discover/login/job call must not hang the pass indefinitely.
 const GC_CALL_TIMEOUT: Duration = Duration::from_secs(30);
+// Closing runs when Deadlock has just started, so it must not hold anything up.
+const STOP_PLAYING_TIMEOUT: Duration = Duration::from_secs(2);
 
 async fn with_timeout<T, E: core::fmt::Display>(
     label: &str,
@@ -56,7 +60,7 @@ async fn with_timeout<T, E: core::fmt::Display>(
     }
 }
 
-/// A live GC session bound to one account. Dropped between passes.
+/// A live GC session bound to one account. End it with [`Self::close`], not by dropping it.
 pub(crate) struct GcSession {
     gc: GameCoordinator,
     conn: Connection,
@@ -115,6 +119,27 @@ impl GcSession {
             account_id: ctx.account_id(),
             friends,
         })
+    }
+
+    /// End the session. The GC handshake reports this account as playing Deadlock, and a
+    /// dropped connection keeps that up until Steam times it out, so starting the game in
+    /// the meantime, or playing it, brings up Steam's "playing on another computer" prompt.
+    /// Clear the game instead of logging off: the session shares the Steam client's login,
+    /// and logging off would sign the client out too.
+    pub(crate) async fn close(self) {
+        let sent = tokio::time::timeout(
+            STOP_PLAYING_TIMEOUT,
+            self.conn.send_with_kind(
+                CMsgClientGamesPlayed::default(),
+                EMsg::k_EMsgClientGamesPlayedWithDataBlob,
+            ),
+        )
+        .await;
+        match sent {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => debug!("gc: clearing games played failed: {e}"),
+            Err(_) => debug!("gc: clearing games played timed out after {STOP_PLAYING_TIMEOUT:?}"),
+        }
     }
 
     /// What Steam currently says about each of `account_ids` (who must be friends). Friends

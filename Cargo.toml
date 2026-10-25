@@ -1,6 +1,6 @@
 [package]
 name = "deadlock-api-ingest"
-version = "0.4.5"
+version = "0.4.6"
 description = "Deadlock API Ingest"
 repository = "https://github.com/deadlock-api/deadlock-api-ingest"
 license = "MIT"
@@ -22,7 +22,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 
 # Steam Game Coordinator match-salt recovery (see src/gc/).
-tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "time"] }
 prost = "0.14"
 futures-util = { version = "0.3", default-features = false }
 steam-vent = { git = "https://github.com/deadlock-api/steam-vent", rev = "098ae675ab698d642e93c4c650cab79f3fc7d130" }

@@ -236,6 +236,7 @@ async fn run_account(
     let mut match_ids = run.friend_matches().await;
     match_ids.extend(fresh_newest_first(to_fetch, run.processed, usize::MAX));
     let fetched = run.fetch_salts(match_ids).await;
+    run.session.close().await;
 
     info!("gc: account {account} fetched {fetched} match salt(s)");
     Ok(())
@@ -582,8 +583,21 @@ async fn run_own_account(
     last_request: &mut Option<Instant>,
     sys: &mut sysinfo::System,
 ) -> Result<usize, GcError> {
-    let account = ctx.account_id();
     let session = GcSession::connect(ctx).await?;
+    let result = recover_own_matches(ctx, &session, store, done, last_request, sys).await;
+    session.close().await;
+    result
+}
+
+async fn recover_own_matches(
+    ctx: &AuthContext,
+    session: &GcSession,
+    store: Option<&GcStore>,
+    done: &mut HashSet<u64>,
+    last_request: &mut Option<Instant>,
+    sys: &mut sysinfo::System,
+) -> Result<usize, GcError> {
+    let account = ctx.account_id();
     let (history, history_complete) = session.fetch_match_history(account).await?;
     let known = {
         let ids = history.clone();
