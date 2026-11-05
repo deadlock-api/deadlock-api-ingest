@@ -11,6 +11,9 @@ pub(crate) enum GcError {
     GcRateLimited,
     /// The GC refused a friend's match history (their profile is private).
     HistoryPrivate,
+    /// Another session of the account is playing a game, on this PC or another. Talking to
+    /// the GC would interrupt it, so the account is skipped until the next pass.
+    AccountInUse,
     /// The deadlock-api to-fetch/salts HTTP call failed.
     Api(String),
     /// Reading or writing the persisted quota/backoff store failed.
@@ -26,6 +29,7 @@ impl Display for GcError {
             GcError::GcUnavailable(s) => write!(f, "Steam GC unavailable: {s}"),
             GcError::GcRateLimited => write!(f, "Steam GC rate-limited the request"),
             GcError::HistoryPrivate => write!(f, "match history is private"),
+            GcError::AccountInUse => write!(f, "the Steam account is playing a game"),
             GcError::Api(s) => write!(f, "deadlock-api request failed: {s}"),
             GcError::Store(s) => write!(f, "GC store error: {s}"),
         }
