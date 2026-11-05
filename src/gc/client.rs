@@ -1,22 +1,29 @@
 //! The Steam Game Coordinator boundary: recover per-match salts client-side through a
 //! remembered account (`steam-vent` + `CMsgClientToGcGetMatchMetaData`), plus the account's
-//! friends list, their persona state and match histories. One CM+GC session per account
-//! per pass, closed with [`GcSession::close`] when the account is done.
+//! friends list, their persona state and match histories. One CM session per account per
+//! pass, which only reports the account as playing Deadlock during each GC request.
 
 use core::future::Future;
 use core::time::Duration;
 use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, PoisonError};
 
-use futures_util::StreamExt as _;
+use futures_util::future::BoxFuture;
+use futures_util::stream::BoxStream;
+use futures_util::{FutureExt as _, StreamExt as _};
 use prost::Message as _;
+use steam_vent::connection::UnAuthenticatedConnection;
+use steam_vent::proto::MsgKind;
 use steam_vent::proto::enums_clientserver::EMsg;
 use steam_vent::proto::steammessages_clientserver::CMsgClientGamesPlayed;
+use steam_vent::proto::steammessages_clientserver_2::CMsgClientPlayingSessionState;
 use steam_vent::proto::steammessages_clientserver_friends::{
     CMsgClientFriendsList, CMsgClientPersonaState, CMsgClientRequestFriendData,
 };
-use steam_vent::proto::{MsgKind, RpcMessageWithKind as _};
+use steam_vent::proto::steammessages_clientserver_login::CMsgClientLoggedOff;
 use steam_vent::{
-    Connection, ConnectionTrait, GameCoordinator, RawNetMessage, ServerList, UntypedMessage,
+    Connection, ConnectionError, ConnectionTrait, EResult as SteamResult, GameCoordinator,
+    NetworkError, RawNetMessage, ReadonlyConnection as _, ServerList, UntypedMessage,
 };
 use tracing::{debug, warn};
 use valveprotos::deadlock::{
@@ -35,9 +42,10 @@ use crate::utils::Salts;
 
 const DEADLOCK_APP_ID: u32 = 1422450;
 
-// Steam pushes the friends list right after logon; it normally lands during the GC
-// handshake, so this only bounds the wait when it never comes.
+// Steam pushes the friends list and the playing state right after logon, so this only
+// bounds the wait when they never come.
 const FRIENDS_LIST_WAIT: Duration = Duration::from_secs(5);
+const PLAYING_STATE_WAIT: Duration = Duration::from_secs(5);
 // Persona states arrive as a burst of pushes, not a single reply.
 const PERSONA_WAIT: Duration = Duration::from_secs(5);
 const FRIEND_RELATIONSHIP_FRIEND: u32 = 3;
@@ -45,7 +53,7 @@ const PERSONA_FLAGS_STATUS_PRESENCE_LAST_SEEN: u32 = 1 | 16 | 64;
 
 // A stalled discover/login/job call must not hang the pass indefinitely.
 const GC_CALL_TIMEOUT: Duration = Duration::from_secs(30);
-// Closing runs when Deadlock has just started, so it must not hold anything up.
+// Runs after every GC request, so a stalled send must not hold up the pass.
 const STOP_PLAYING_TIMEOUT: Duration = Duration::from_secs(2);
 
 async fn with_timeout<T, E: core::fmt::Display>(
@@ -60,13 +68,33 @@ async fn with_timeout<T, E: core::fmt::Display>(
     }
 }
 
-/// A live GC session bound to one account. End it with [`Self::close`], not by dropping it.
+type LoggedOff = BoxFuture<'static, Result<CMsgClientLoggedOff, NetworkError>>;
+// Steam pushes one right after logon and another whenever a session of the account starts
+// or stops a game.
+type PlayingStates = BoxStream<'static, Result<CMsgClientPlayingSessionState, NetworkError>>;
+
+/// A logged-on CM session bound to one account. It only reports the account as playing
+/// Deadlock during a GC request ([`Self::send_job`]): while it does, launching the game
+/// brings up Steam's "playing on another computer" prompt.
 pub(crate) struct GcSession {
-    gc: GameCoordinator,
     conn: Connection,
     account_id: u32,
     /// Account ids of this account's Steam friends; empty if Steam never sent the list.
     pub(crate) friends: Vec<u32>,
+    logged_off: Mutex<Logoff>,
+    playing: Mutex<PlayingState>,
+}
+
+/// Steam's logoff message, polled only until it arrives: polling it again would panic.
+enum Logoff {
+    Pending(LoggedOff),
+    InUseElsewhere,
+    Other,
+}
+
+struct PlayingState {
+    updates: PlayingStates,
+    blocked: bool,
 }
 
 /// Friend account ids from a friends list: confirmed friends that are individual accounts.
@@ -82,30 +110,43 @@ fn friend_account_ids(list: &CMsgClientFriendsList) -> Vec<u32> {
 }
 
 impl GcSession {
-    /// Log in through the user's own account and hand-shake the Deadlock GC. Fails
-    /// (not panics) if the account doesn't own the game or Steam is unreachable.
+    /// Log in through the user's own account. Fails (not panics) if Steam is unreachable,
+    /// or with `AccountInUse` if another session of the account is playing a game.
     pub(crate) async fn connect(ctx: &AuthContext) -> Result<Self, GcError> {
         let servers = with_timeout("server discovery", ServerList::discover()).await?;
-        let conn = with_timeout(
-            "CM login",
-            Connection::access(&servers, &ctx.account_name, &ctx.refresh_token),
-        )
-        .await?;
-        // Listen before draining the unprocessed buffer, so the list can't slip between them.
-        let friends_list = conn.one::<CMsgClientFriendsList>();
-        let buffered = conn
-            .take_unprocessed()
-            .into_iter()
-            .find(|m| m.kind == MsgKind::from(CMsgClientFriendsList::KIND));
-        let gc = with_timeout("GC handshake", GameCoordinator::new(&conn, DEADLOCK_APP_ID)).await?;
+        // Listen before logging in: Steam pushes these right after logon, and steam-vent
+        // keeps only the last few messages nobody listens for.
+        let (conn, friends_list, mut playing_states, logged_off) =
+            with_timeout("CM login", async {
+                let unauthenticated = UnAuthenticatedConnection::connect(&servers).await?;
+                let friends_list = unauthenticated.one::<CMsgClientFriendsList>().boxed();
+                let playing_states = unauthenticated
+                    .on::<CMsgClientPlayingSessionState>()
+                    .boxed();
+                let logged_off = unauthenticated.one::<CMsgClientLoggedOff>().boxed();
+                let conn = unauthenticated
+                    .access(&ctx.account_name, &ctx.refresh_token)
+                    .await?;
+                Ok::<_, ConnectionError>((conn, friends_list, playing_states, logged_off))
+            })
+            .await?;
 
-        let list = match buffered {
-            Some(raw) => raw.into_message::<CMsgClientFriendsList>().ok(),
-            None => tokio::time::timeout(FRIENDS_LIST_WAIT, friends_list)
-                .await
-                .ok()
-                .and_then(Result::ok),
+        // Starting Deadlock while another session plays a game would interrupt it.
+        let state = tokio::time::timeout(PLAYING_STATE_WAIT, playing_states.next()).await;
+        let blocked = if let Ok(Some(Ok(state))) = state {
+            state.playing_blocked()
+        } else {
+            debug!("gc: Steam sent no playing state after logon");
+            false
         };
+        if blocked {
+            return Err(GcError::AccountInUse);
+        }
+
+        let list = tokio::time::timeout(FRIENDS_LIST_WAIT, friends_list)
+            .await
+            .ok()
+            .and_then(Result::ok);
         let friends = list.as_ref().map(friend_account_ids).unwrap_or_default();
         if list.is_none() {
             warn!(
@@ -114,19 +155,55 @@ impl GcSession {
             );
         }
         Ok(Self {
-            gc,
             conn,
             account_id: ctx.account_id(),
             friends,
+            logged_off: Mutex::new(Logoff::Pending(logged_off)),
+            playing: Mutex::new(PlayingState {
+                updates: playing_states,
+                blocked: false,
+            }),
         })
     }
 
-    /// End the session. The GC handshake reports this account as playing Deadlock, and a
-    /// dropped connection keeps that up until Steam times it out, so starting the game in
-    /// the meantime, or playing it, brings up Steam's "playing on another computer" prompt.
-    /// Clear the game instead of logging off: the session shares the Steam client's login,
-    /// and logging off would sign the client out too.
-    pub(crate) async fn close(self) {
+    /// Whether another session of the account has started a game since the last check.
+    fn playing_blocked(&self) -> bool {
+        let mut playing = self.playing.lock().unwrap_or_else(PoisonError::into_inner);
+        while let Some(Some(state)) = playing.updates.next().now_or_never() {
+            if let Ok(state) = state {
+                playing.blocked = state.playing_blocked();
+            }
+        }
+        playing.blocked
+    }
+
+    /// `AccountInUse` instead of `error` if Steam logged this session off because another
+    /// session of the account started a game.
+    fn logged_off_or(&self, error: GcError) -> GcError {
+        let mut logged_off = self
+            .logged_off
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Logoff::Pending(pending) = &mut *logged_off
+            && let Some(msg) = pending.as_mut().now_or_never()
+        {
+            *logged_off = match msg {
+                Ok(msg) if msg.eresult() == SteamResult::LoggedInElsewhere as i32 => {
+                    Logoff::InUseElsewhere
+                }
+                _ => Logoff::Other,
+            };
+        }
+        match *logged_off {
+            Logoff::InUseElsewhere => GcError::AccountInUse,
+            Logoff::Pending(_) | Logoff::Other => error,
+        }
+    }
+
+    /// Stop reporting the account as playing Deadlock. Clears the game instead of logging
+    /// off: the session shares the Steam client's login, and logging off would sign the
+    /// client out too.
+    async fn clear_playing(&self) {
         let sent = tokio::time::timeout(
             STOP_PLAYING_TIMEOUT,
             self.conn.send_with_kind(
@@ -243,17 +320,30 @@ impl GcSession {
         Err(err)
     }
 
+    /// One GC request. The GC only serves a session that reports the account as playing
+    /// Deadlock, so this hand-shakes right before the request and stops playing right
+    /// after it, instead of playing for the whole pass.
     async fn send_job(
         &self,
         req_bytes: Vec<u8>,
         kind: MsgKind,
         label: &str,
     ) -> Result<RawNetMessage, GcError> {
-        with_timeout(
-            label,
-            self.gc.job_untyped(UntypedMessage(req_bytes), kind, true),
-        )
-        .await
+        if self.playing_blocked() {
+            return Err(GcError::AccountInUse);
+        }
+        let result = async {
+            let gc = with_timeout(
+                "GC handshake",
+                GameCoordinator::new(&self.conn, DEADLOCK_APP_ID),
+            )
+            .await?;
+            with_timeout(label, gc.job_untyped(UntypedMessage(req_bytes), kind, true)).await
+        }
+        .await;
+        // Also after a failure: the handshake may have started playing.
+        self.clear_playing().await;
+        result.map_err(|e| self.logged_off_or(e))
     }
 
     /// One `GetMatchMetaData` round-trip, tagged with this session's account. No internal

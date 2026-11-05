@@ -215,6 +215,10 @@ async fn run_account(
             }
             s
         }
+        Err(GcError::AccountInUse) => {
+            info!("gc: skipping account {account}, it is playing a game");
+            return Ok(());
+        }
         Err(e) => {
             warn!("gc: account {account} cannot connect to GC: {e}");
             store.set_backoff(ctx.steam_id64, Some(now + GC_BACKOFF_SECS))?;
@@ -236,7 +240,6 @@ async fn run_account(
     let mut match_ids = run.friend_matches().await;
     match_ids.extend(fresh_newest_first(to_fetch, run.processed, usize::MAX));
     let fetched = run.fetch_salts(match_ids).await;
-    run.session.close().await;
 
     info!("gc: account {account} fetched {fetched} match salt(s)");
     Ok(())
@@ -319,6 +322,11 @@ impl AccountRun<'_> {
                     if let Err(e) = self.spend_salt(true) {
                         warn!("gc: {e}");
                     }
+                    break;
+                }
+                // Says nothing about the match; another account may fetch it.
+                Err(GcError::AccountInUse) => {
+                    info!("gc: account {account} started playing a game, stopping");
                     break;
                 }
                 // Any other failure fetched nothing; skip the id so it isn't retried this pass.
@@ -437,6 +445,9 @@ impl AccountRun<'_> {
                 break;
             }
             let result = self.session.fetch_recent_matches(friend).await;
+            if matches!(result, Err(GcError::AccountInUse)) {
+                break;
+            }
             let rate_limited = matches!(result, Err(GcError::GcRateLimited));
             // Every request counts against Steam's limit, whatever it answers.
             if let Err(e) = self.spend_history(rate_limited) {
@@ -583,21 +594,8 @@ async fn run_own_account(
     last_request: &mut Option<Instant>,
     sys: &mut sysinfo::System,
 ) -> Result<usize, GcError> {
-    let session = GcSession::connect(ctx).await?;
-    let result = recover_own_matches(ctx, &session, store, done, last_request, sys).await;
-    session.close().await;
-    result
-}
-
-async fn recover_own_matches(
-    ctx: &AuthContext,
-    session: &GcSession,
-    store: Option<&GcStore>,
-    done: &mut HashSet<u64>,
-    last_request: &mut Option<Instant>,
-    sys: &mut sysinfo::System,
-) -> Result<usize, GcError> {
     let account = ctx.account_id();
+    let session = GcSession::connect(ctx).await?;
     let (history, history_complete) = session.fetch_match_history(account).await?;
     let known = {
         let ids = history.clone();
@@ -638,7 +636,7 @@ async fn recover_own_matches(
 
         let salts = match session.fetch_match_salts(match_id).await {
             Ok(s) => s,
-            Err(GcError::GcRateLimited) => return Err(GcError::GcRateLimited),
+            Err(e @ (GcError::GcRateLimited | GcError::AccountInUse)) => return Err(e),
             Err(e) => {
                 warn!("gc: salt fetch failed for {match_id}: {e}");
                 record_salt_attempt(store, match_id);
