@@ -281,8 +281,9 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=$SERVICE_NAME
 
-# Security Hardening (no NoNewPrivileges: it would keep the memory helper from its capability)
-PrivateTmp=true
+# No NoNewPrivileges= or PrivateTmp=: the kernel ignores the memory helper's capability
+# under the former, and the latter puts a user service in its own user namespace, where
+# the capability doesn't count either.
 
 [Install]
 WantedBy=default.target

@@ -174,8 +174,9 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier={APP_NAME}
 
-# Security Hardening (no NoNewPrivileges: it would keep the memory helper from its capability)
-PrivateTmp=true
+# No NoNewPrivileges= or PrivateTmp=: the kernel ignores the memory helper's capability
+# under the former, and the latter puts a user service in its own user namespace, where
+# the capability doesn't count either.
 
 [Install]
 WantedBy=default.target
@@ -273,5 +274,8 @@ mod tests {
         let unit = platform::unit_file(Path::new("/opt/deadlock-api-ingest"));
         assert!(unit.contains("\nExecStart=/opt/deadlock-api-ingest\n"));
         assert!(unit.contains("\nWantedBy=default.target\n"));
+        // Either would keep the memory helper from its capability.
+        assert!(!unit.contains("\nNoNewPrivileges="));
+        assert!(!unit.contains("\nPrivateTmp="));
     }
 }
