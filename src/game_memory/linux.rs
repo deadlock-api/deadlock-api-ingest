@@ -42,7 +42,13 @@ impl GameProcess {
                     return Err(e);
                 };
                 open_through_helper(helper, pid).map_err(|err| {
-                    io::Error::new(ErrorKind::PermissionDenied, format!("{e}; {helper}: {err}"))
+                    let why = helper_blocked()
+                        .map(|why| format!(" ({why})"))
+                        .unwrap_or_default();
+                    io::Error::new(
+                        ErrorKind::PermissionDenied,
+                        format!("{e}; {helper}: {err}{why}"),
+                    )
                 })?
             }
             opened => opened?,
@@ -61,6 +67,34 @@ impl GameProcess {
     pub(super) fn read(&self, addr: usize, buf: &mut [u8]) -> usize {
         u64::try_from(addr).map_or(0, |offset| self.mem.read_at(buf, offset).unwrap_or(0))
     }
+}
+
+/// Why the helper's file capability can't take effect when we run it, if it can't.
+fn helper_blocked() -> Option<&'static str> {
+    let status = fs::read_to_string("/proc/self/status").ok()?;
+    let uid_map = fs::read_to_string("/proc/self/uid_map").ok()?;
+    blocked_by(&status, &uid_map)
+}
+
+fn blocked_by(status: &str, uid_map: &str) -> Option<&'static str> {
+    let no_new_privs = status
+        .lines()
+        .filter_map(|line| line.strip_prefix("NoNewPrivs:"))
+        .any(|value| value.trim() == "1");
+    if no_new_privs {
+        return Some(
+            "it gets no capability as this process runs with no_new_privs, e.g. from a systemd \
+             unit's NoNewPrivileges=",
+        );
+    }
+    // Outside the initial user namespace the capability only counts in ours, not the game's.
+    if uid_map.split_whitespace().ne(["0", "0", "4294967295"]) {
+        return Some(
+            "its capability doesn't count as this process runs in its own user namespace, e.g. \
+             from a systemd user unit's PrivateTmp=",
+        );
+    }
+    None
 }
 
 /// Runs the helper with one end of a socket pair as its stdout and takes the open memory file
@@ -142,6 +176,19 @@ fn heap_regions(maps: &str) -> Vec<Region> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_helper_is_blocked_under_no_new_privs_or_in_a_user_namespace() {
+        let host = "         0          0 4294967295\n";
+        assert_eq!(blocked_by("NoNewPrivs:\t0\n", host), None);
+        assert!(
+            blocked_by("NoNewPrivs:\t1\n", host).is_some_and(|why| why.contains("no_new_privs"))
+        );
+        let own_ns = "      1000       1000          1\n";
+        assert!(
+            blocked_by("NoNewPrivs:\t0\n", own_ns).is_some_and(|why| why.contains("namespace"))
+        );
+    }
 
     #[test]
     fn only_readable_private_anonymous_mappings_are_heap() {
