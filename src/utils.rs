@@ -178,7 +178,8 @@ impl Salts {
                 .send_json(&salts);
             match response {
                 Ok(r) if r.status().is_success() => {
-                    info!("Ingested {source:?} salts: {salts:?}");
+                    info!("Ingested {num_salts} {source:?} salts");
+                    debug!("Ingested salts: {salts:?}");
                     for salt in &salts {
                         ingestion_cache::mark_ingested(salt, source);
                     }
