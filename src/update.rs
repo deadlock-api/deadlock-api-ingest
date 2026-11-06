@@ -162,6 +162,8 @@ mod platform {
     use crate::paths::{self, APP_NAME};
     use crate::service::{self, linux::systemctl, spawn_detached, stop_other_instances};
     use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
+    use std::process::Command;
 
     pub(super) fn apply(update: &Update) -> Result<(), String> {
         let exe = paths::current_exe()?;
@@ -170,6 +172,7 @@ mod platform {
         let staged = exe.with_extension("new");
         download(&update.download_url, &staged)?;
         std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))
+            .and_then(|()| starts(&staged))
             .and_then(|()| std::fs::rename(&staged, &exe))
             .map_err(|e| {
                 let _ = std::fs::remove_file(&staged);
@@ -183,6 +186,25 @@ mod platform {
         }
         spawn_detached(&exe, &["--gui"])
             .map_err(|e| format!("Updated, but couldn't reopen the window: {e}"))
+    }
+
+    /// Runs `exe --version`, so a build this system can't start (e.g. one linked against a
+    /// newer glibc than it has) never replaces the working one.
+    pub(super) fn starts(exe: &Path) -> std::io::Result<()> {
+        let doesnt_start =
+            |why: String| std::io::Error::other(format!("the new version doesn't start: {why}"));
+        let out = Command::new(exe)
+            .arg("--version")
+            .output()
+            .map_err(|e| doesnt_start(e.to_string()))?;
+        if out.status.success() {
+            return Ok(());
+        }
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        Err(doesnt_start(match stderr.trim() {
+            "" => out.status.to_string(),
+            stderr => format!("{}, {stderr}", out.status),
+        }))
     }
 }
 
@@ -206,5 +228,37 @@ mod tests {
         assert_eq!(parse_version("v0.3.4-1a2b3c4"), Some((0, 3, 4)));
         assert_eq!(parse_version("nightly"), None);
         assert!(parse_version("v0.10.0") > parse_version("v0.9.9"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_starts() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("dai-update-starts-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = |name: &str, content: &[u8]| {
+            let path = dir.join(name);
+            std::fs::write(&path, content).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        };
+        let ok = exe("ok", b"#!/bin/sh\necho \"deadlock-api-ingest 9.9.9\"\n");
+        let old_glibc = exe(
+            "old-glibc",
+            b"#!/bin/sh\necho \"version 'GLIBC_2.38' not found\" >&2\nexit 1\n",
+        );
+        let killed = exe("killed", b"#!/bin/sh\nkill -KILL $$\n");
+        let garbage = exe("garbage", &[0; 64]);
+
+        assert!(platform::starts(&ok).is_ok());
+        let err = platform::starts(&old_glibc).unwrap_err().to_string();
+        assert!(err.contains("GLIBC_2.38"), "{err}");
+        let err = platform::starts(&killed).unwrap_err().to_string();
+        assert!(err.ends_with("(SIGKILL)"), "{err}");
+        let err = platform::starts(&garbage).unwrap_err().to_string();
+        assert!(err.contains("doesn't start"), "{err}");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
