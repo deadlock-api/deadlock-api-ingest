@@ -40,6 +40,8 @@ pub(super) struct Salts {
     pub(super) cluster_id: Option<u32>,
     pub(super) metadata_salt: Option<u32>,
     pub(super) replay_salt: Option<u32>,
+    /// The account credited with the upload: the one that fetched it through the GC, or, if
+    /// `None`, whoever is logged in to Steam on this PC when it's uploaded.
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "serialize_username"
@@ -78,7 +80,7 @@ impl Salts {
                 match_id: match_str.parse().ok()?,
                 metadata_salt: salt_str.parse().ok(),
                 replay_salt: None,
-                username: crate::steam_user::current_steam_id3(),
+                username: None,
             })
         } else if name.ends_with(".dem.bz2") {
             let name = name.strip_suffix(".dem.bz2")?;
@@ -89,7 +91,7 @@ impl Salts {
                 match_id: match_str.parse().ok()?,
                 replay_salt: salt_str.parse().ok(),
                 metadata_salt: None,
-                username: crate::steam_user::current_steam_id3(),
+                username: None,
             })
         } else {
             None
@@ -120,19 +122,22 @@ impl Salts {
             return Err(Error::MatchIdTooLarge);
         }
 
+        let salts = credit(&[*self], crate::steam_user::current_steam_id3);
         let max_retries = 10;
         let mut attempt = 0;
 
         loop {
             attempt += 1;
-            debug!("Ingesting salts: {self:?} (retry {attempt}/{max_retries})");
+            debug!("Ingesting salts: {salts:?} (retry {attempt}/{max_retries})");
             let response = HTTP_CLIENT
                 .get_or_init(ureq::Agent::new_with_defaults)
                 .post("https://api.deadlock-api.com/v1/matches/salts")
-                .send_json([self]);
+                .send_json(&salts);
             match response {
                 Ok(r) if r.status().is_success() => {
-                    ingestion_cache::mark_ingested(self, source);
+                    for salt in &salts {
+                        ingestion_cache::mark_ingested(salt, source);
+                    }
                     return Ok(());
                 }
                 Ok(mut resp) if attempt == max_retries => {
@@ -154,6 +159,7 @@ impl Salts {
     }
 
     fn ingest_batch(salts: &[Salts], source: Source) -> Result<(), Error> {
+        let salts = credit(salts, crate::steam_user::current_steam_id3);
         let max_retries = 10;
         let num_salts = salts.len();
         let mut attempt = 0;
@@ -168,10 +174,10 @@ impl Salts {
             let response = HTTP_CLIENT
                 .get_or_init(ureq::Agent::new_with_defaults)
                 .post("https://api.deadlock-api.com/v1/matches/salts")
-                .send_json(salts);
+                .send_json(&salts);
             match response {
                 Ok(r) if r.status().is_success() => {
-                    for salt in salts {
+                    for salt in &salts {
                         ingestion_cache::mark_ingested(salt, source);
                     }
                     return Ok(());
@@ -189,9 +195,45 @@ impl Salts {
     }
 }
 
+/// Credits the salts without an account to `user()`, the Steam user logged in at upload time:
+/// Steam can switch accounts while the watcher runs. `user` is only called if a salt needs it.
+fn credit(salts: &[Salts], user: impl FnOnce() -> Option<u32>) -> Vec<Salts> {
+    let user = salts
+        .iter()
+        .any(|salt| salt.username.is_none())
+        .then(user)
+        .flatten();
+    salts
+        .iter()
+        .map(|salt| Salts {
+            username: salt.username.or(user),
+            ..*salt
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_credit_keeps_the_gc_account_and_fills_in_the_steam_user() {
+        let salt = |match_id, username| Salts {
+            match_id,
+            cluster_id: Some(1),
+            metadata_salt: Some(2),
+            replay_salt: None,
+            username,
+        };
+        let credited = credit(&[salt(1, Some(5)), salt(2, None)], || Some(7));
+        assert_eq!(credited, [salt(1, Some(5)), salt(2, Some(7))]);
+        assert_eq!(credit(&[salt(2, None)], || None), [salt(2, None)]);
+        // GC salts already name their account, so Steam isn't asked.
+        assert_eq!(
+            credit(&[salt(1, Some(5))], || unreachable!()),
+            [salt(1, Some(5))]
+        );
+    }
 
     #[test]
     fn test_extract_salts() {

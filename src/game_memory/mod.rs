@@ -60,7 +60,7 @@ use valveprotos::deadlock::CMsgClientToGcGetMatchMetaDataResponse;
 use crate::ingestion_cache::{self, Source};
 use crate::scan_cache::replay_urls;
 use crate::utils::{Salts, now_secs};
-use crate::{game_process, paths, steam_user};
+use crate::{game_process, paths};
 use scan::KnownMatch;
 
 const PASS_EVERY: Duration = Duration::from_mins(5);
@@ -265,7 +265,6 @@ impl Found {
             matches_by_start,
             urls,
         } = self;
-        let username = steam_user::current_steam_id3();
         let from_replies: Vec<Salts> = replies
             .iter()
             .filter_map(|reply| {
@@ -278,7 +277,7 @@ impl Found {
                 if known.duration.abs_diff(duration) > DURATION_TOLERANCE {
                     return None;
                 }
-                Salts::from_metadata_reply(known.match_id, reply, username)
+                Salts::from_metadata_reply(known.match_id, reply, None)
             })
             .collect();
         let unmatched = replies.len().saturating_sub(from_replies.len());

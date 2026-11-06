@@ -1,17 +1,13 @@
 use std::collections::HashMap;
 use std::fs;
-use std::sync::OnceLock;
 
 pub(crate) const STEAM_ID_64_IDENT: u64 = 76561197960265728;
 
-static CURRENT_STEAM_ID3: OnceLock<Option<u32>> = OnceLock::new();
-
-/// Returns the current Steam user's account ID (`SteamID3` = ID64 - ident).
+/// Returns the current Steam user's account ID (`SteamID3` = ID64 - ident). Read on every
+/// call: Steam can switch accounts while the watcher runs.
 pub(crate) fn current_steam_id3() -> Option<u32> {
-    *CURRENT_STEAM_ID3.get_or_init(|| {
-        let id64 = get_current_steam_id64()?;
-        u32::try_from(id64.checked_sub(STEAM_ID_64_IDENT)?).ok()
-    })
+    let id64 = get_current_steam_id64()?;
+    u32::try_from(id64.checked_sub(STEAM_ID_64_IDENT)?).ok()
 }
 
 /// Get the currently logged-in Steam user's ID64 by parsing `loginusers.vdf`.
