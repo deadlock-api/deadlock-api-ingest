@@ -14,10 +14,9 @@ pub(crate) const MAX_MATCH_ID: u64 = 10_000_000_000;
 /// The API takes at most this many salts per request.
 const MAX_SALTS_PER_REQUEST: usize = 1000;
 
-static HTTP_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
 static TIMEOUT_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
 
-/// Shared agent for requests that must not hang (GC API lookups, update checks).
+/// Shared agent for requests that must not hang (salt uploads, GC API lookups, update checks).
 pub(crate) fn http_client() -> &'static ureq::Agent {
     TIMEOUT_CLIENT.get_or_init(|| {
         ureq::Agent::config_builder()
@@ -129,8 +128,7 @@ impl Salts {
         loop {
             attempt += 1;
             debug!("Ingesting salts: {salts:?} (retry {attempt}/{max_retries})");
-            let response = HTTP_CLIENT
-                .get_or_init(ureq::Agent::new_with_defaults)
+            let response = http_client()
                 .post("https://api.deadlock-api.com/v1/matches/salts")
                 .send_json(&salts);
             match response {
@@ -172,8 +170,7 @@ impl Salts {
                 debug!("Ingesting {num_salts} salts");
             }
 
-            let response = HTTP_CLIENT
-                .get_or_init(ureq::Agent::new_with_defaults)
+            let response = http_client()
                 .post("https://api.deadlock-api.com/v1/matches/salts")
                 .send_json(&salts);
             match response {

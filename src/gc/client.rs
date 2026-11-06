@@ -4,6 +4,7 @@
 //! pass, which only reports the account as playing Deadlock during each GC request.
 
 use core::future::Future;
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, PoisonError};
@@ -83,6 +84,8 @@ pub(crate) struct GcSession {
     pub(crate) friends: Vec<u32>,
     logged_off: Mutex<Logoff>,
     playing: Mutex<PlayingState>,
+    /// Whether a GC handshake of this session has succeeded.
+    gc_answered: AtomicBool,
 }
 
 /// Steam's logoff message, polled only until it arrives: polling it again would panic.
@@ -163,7 +166,13 @@ impl GcSession {
                 updates: playing_states,
                 blocked: false,
             }),
+            gc_answered: AtomicBool::new(false),
         })
+    }
+
+    /// Whether the GC has welcomed this session at least once, i.e. it serves this account.
+    pub(crate) fn gc_answered(&self) -> bool {
+        self.gc_answered.load(Ordering::Relaxed)
     }
 
     /// Whether another session of the account has started a game since the last check.
@@ -322,7 +331,8 @@ impl GcSession {
 
     /// One GC request. The GC only serves a session that reports the account as playing
     /// Deadlock, so this hand-shakes right before the request and stops playing right
-    /// after it, instead of playing for the whole pass.
+    /// after it, instead of playing for the whole pass. A failed handshake is
+    /// `GcHandshakeFailed`, so callers can tell it from a failed request.
     async fn send_job(
         &self,
         req_bytes: Vec<u8>,
@@ -333,11 +343,18 @@ impl GcSession {
             return Err(GcError::AccountInUse);
         }
         let result = async {
+            // steam-vent re-sends hello until the GC welcomes the session, so a GC that never
+            // answers only ends at the timeout.
             let gc = with_timeout(
                 "GC handshake",
                 GameCoordinator::new(&self.conn, DEADLOCK_APP_ID),
             )
-            .await?;
+            .await
+            .map_err(|e| match e {
+                GcError::GcUnavailable(s) => GcError::GcHandshakeFailed(s),
+                e => e,
+            })?;
+            self.gc_answered.store(true, Ordering::Relaxed);
             with_timeout(label, gc.job_untyped(UntypedMessage(req_bytes), kind, true)).await
         }
         .await;

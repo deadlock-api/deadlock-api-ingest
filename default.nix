@@ -7,6 +7,7 @@
   stdenv,
   darwin,
   makeWrapper,
+  makeDesktopItem,
   libxkbcommon,
   wayland,
   
@@ -20,6 +21,19 @@
 
 let
   cargoToml = builtins.fromTOML (builtins.readFile (src + /Cargo.toml));
+
+  # The status window's entry, as install-linux.sh writes it: Wayland desktops find a
+  # window's icon only through the desktop file named like its app_id.
+  statusDesktopItem = makeDesktopItem {
+    name = "deadlock-api-ingest-status";
+    desktopName = "Deadlock API Ingest";
+    comment = "See the Deadlock matches you have sent to trackers";
+    exec = "deadlock-api-ingest --gui";
+    icon = "deadlock-api-ingest";
+    categories = [ "Utility" ];
+    keywords = [ "deadlock" "api" "ingest" "steam" "matches" "replay" "tracker" ];
+    startupWMClass = "deadlock-api-ingest-status";
+  };
 in
 naersk-lib.buildPackage {
   pname = "deadlock-api-ingest";
@@ -53,6 +67,8 @@ naersk-lib.buildPackage {
           libXrandr
         ]
       }
+    install -Dm644 ${src}/assets/icon.png $out/share/icons/hicolor/256x256/apps/deadlock-api-ingest.png
+    install -Dm644 -t $out/share/applications ${statusDesktopItem}/share/applications/*.desktop
   '';
 
   # naersk runs tests by default
