@@ -32,8 +32,7 @@ impl TestProcess {
         }
 
         // Start the application process
-        // Note: The application requires elevated privileges for packet capture,
-        // but in CI/test environments we'll use a mock or limited mode
+        // The real watcher, with no arguments: it runs against this machine's Steam.
         let child = Command::new("target/release/deadlock-api-ingest")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -169,6 +168,7 @@ fn monitor_resources(
 }
 
 #[test]
+#[ignore = "runs the real watcher: it uploads Steam cache salts, reads game memory and starts GC passes"]
 fn test_memory_usage_under_load() {
     // This test verifies that memory usage stays under 200 MB during operation
     println!("Starting memory usage test...");
@@ -177,9 +177,9 @@ fn test_memory_usage_under_load() {
         Ok(p) => p,
         Err(e) => {
             eprintln!("Failed to start test process: {e}");
-            eprintln!("Note: This test requires elevated privileges for packet capture.");
+            eprintln!("Note: this runs the real watcher against this machine's Steam.");
             eprintln!(
-                "Run with: sudo -E cargo test --test resource_usage -- --ignored --nocapture"
+                "Run with: cargo test --test resource_usage -- --ignored --nocapture --test-threads=1"
             );
             return;
         }
@@ -219,6 +219,7 @@ fn test_memory_usage_under_load() {
 }
 
 #[test]
+#[ignore = "runs the real watcher: it uploads Steam cache salts, reads game memory and starts GC passes"]
 fn test_cpu_usage_under_load() {
     // This test verifies that CPU usage remains reasonable during operation
     println!("Starting CPU usage test...");
@@ -227,9 +228,9 @@ fn test_cpu_usage_under_load() {
         Ok(p) => p,
         Err(e) => {
             eprintln!("Failed to start test process: {e}");
-            eprintln!("Note: This test requires elevated privileges for packet capture.");
+            eprintln!("Note: this runs the real watcher against this machine's Steam.");
             eprintln!(
-                "Run with: sudo -E cargo test --test resource_usage -- --ignored --nocapture"
+                "Run with: cargo test --test resource_usage -- --ignored --nocapture --test-threads=1"
             );
             return;
         }
