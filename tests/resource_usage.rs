@@ -178,7 +178,9 @@ fn test_memory_usage_under_load() {
         Err(e) => {
             eprintln!("Failed to start test process: {e}");
             eprintln!("Note: this runs the real watcher against this machine's Steam.");
-            eprintln!("Run with: cargo test --test resource_usage -- --ignored --nocapture");
+            eprintln!(
+                "Run with: cargo test --test resource_usage -- --ignored --nocapture --test-threads=1"
+            );
             return;
         }
     };
@@ -227,7 +229,9 @@ fn test_cpu_usage_under_load() {
         Err(e) => {
             eprintln!("Failed to start test process: {e}");
             eprintln!("Note: this runs the real watcher against this machine's Steam.");
-            eprintln!("Run with: cargo test --test resource_usage -- --ignored --nocapture");
+            eprintln!(
+                "Run with: cargo test --test resource_usage -- --ignored --nocapture --test-threads=1"
+            );
             return;
         }
     };
