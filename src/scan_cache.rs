@@ -119,9 +119,8 @@ pub(super) fn watch_cache_dir(cache_dir: &Path) -> notify::Result<()> {
                     continue;
                 }
 
-                match salts.ingest(ingestion_cache::Source::Cache) {
-                    Ok(()) => info!("Ingested salts: {salts:?}"),
-                    Err(e) => warn!("Failed to ingest salts: {e:?}"),
+                if let Err(e) = salts.ingest(ingestion_cache::Source::Cache) {
+                    warn!("Failed to ingest salts: {e:?}");
                 }
             }
         }

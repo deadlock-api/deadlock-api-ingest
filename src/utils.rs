@@ -4,7 +4,7 @@ use core::time::Duration;
 use serde::Serialize;
 use std::sync::OnceLock;
 use std::thread::sleep;
-use tracing::debug;
+use tracing::{debug, info};
 use ureq::Error::StatusCode;
 use valveprotos::deadlock::CMsgClientToGcGetMatchMetaDataResponse;
 
@@ -135,6 +135,7 @@ impl Salts {
                 .send_json(&salts);
             match response {
                 Ok(r) if r.status().is_success() => {
+                    info!("Ingested {source:?} salts: {salts:?}");
                     for salt in &salts {
                         ingestion_cache::mark_ingested(salt, source);
                     }
@@ -177,6 +178,7 @@ impl Salts {
                 .send_json(&salts);
             match response {
                 Ok(r) if r.status().is_success() => {
+                    info!("Ingested {source:?} salts: {salts:?}");
                     for salt in &salts {
                         ingestion_cache::mark_ingested(salt, source);
                     }

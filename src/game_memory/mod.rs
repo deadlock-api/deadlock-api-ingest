@@ -54,7 +54,7 @@ use std::thread::sleep;
 use std::time::Instant;
 
 use sysinfo::System;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 use valveprotos::deadlock::CMsgClientToGcGetMatchMetaDataResponse;
 
 use crate::ingestion_cache::{self, Source};
@@ -194,11 +194,10 @@ fn pass(pid: u32) -> io::Result<Duration> {
         all.len()
     );
     let salts: Vec<Salts> = all.into_iter().filter(ingestion_cache::is_new).collect();
-    if !salts.is_empty() {
-        match Salts::ingest_many(&salts, Source::Memory) {
-            Ok(()) => info!("memory: ingested salts: {salts:?}"),
-            Err(e) => warn!("memory: failed to ingest salts: {e:?}"),
-        }
+    if !salts.is_empty()
+        && let Err(e) = Salts::ingest_many(&salts, Source::Memory)
+    {
+        warn!("memory: failed to ingest salts: {e:?}");
     }
     Ok(read_for)
 }
