@@ -15,16 +15,21 @@ pub(crate) fn current_steam_id3() -> Option<u32> {
 }
 
 /// Get the currently logged-in Steam user's ID64 by parsing `loginusers.vdf`.
-///
-/// Steam marks the active user with `"MostRecent" "1"` in this file.
 fn get_current_steam_id64() -> Option<u64> {
     let steam_dir = steamlocate::SteamDir::locate().ok()?;
     let vdf_path = steam_dir.path().join("config").join("loginusers.vdf");
     let content = fs::read_to_string(&vdf_path).ok()?;
+    signed_in_user(&content)
+}
 
-    parse_login_users(&content)
-        .into_iter()
+/// Older Steam clients mark the signed-in user with `"MostRecent" "1"`; current ones no
+/// longer write that key and mark it with `"AutoLogin" "1"` instead.
+fn signed_in_user(loginusers_vdf: &str) -> Option<u64> {
+    let users = parse_login_users(loginusers_vdf);
+    users
+        .iter()
         .find(|u| u.most_recent)
+        .or_else(|| users.iter().find(|u| u.auto_login))
         .map(|u| u.steam_id)
 }
 
@@ -32,6 +37,7 @@ fn get_current_steam_id64() -> Option<u64> {
 struct ParsedUser {
     steam_id: u64,
     most_recent: bool,
+    auto_login: bool,
 }
 
 fn parse_login_users(content: &str) -> Vec<ParsedUser> {
@@ -60,7 +66,8 @@ fn parse_login_users(content: &str) -> Vec<ParsedUser> {
                 let props = parse_block(&mut lines);
                 users.push(ParsedUser {
                     steam_id,
-                    most_recent: props.get("MostRecent").is_some_and(|v| v == "1"),
+                    most_recent: props.get("mostrecent").is_some_and(|v| v == "1"),
+                    auto_login: props.get("autologin").is_some_and(|v| v == "1"),
                 });
             }
         }
@@ -80,8 +87,9 @@ fn parse_block<'a>(lines: &mut impl Iterator<Item = &'a str>) -> HashMap<String,
         let _parts: Vec<&str> = trimmed.splitn(2, '"').collect::<Vec<_>>();
         // Reparse: find all quoted strings
         let quoted: Vec<String> = extract_all_quoted(trimmed);
+        // Compared case-insensitively: Steam has written both "Timestamp" and "timestamp".
         if quoted.len() >= 2 {
-            map.insert(quoted[0].clone(), quoted[1].clone());
+            map.insert(quoted[0].to_ascii_lowercase(), quoted[1].clone());
         }
     }
     map
@@ -111,4 +119,52 @@ fn extract_all_quoted(s: &str) -> Vec<String> {
         }
     }
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_signed_in_user() {
+        // Current clients: no MostRecent; the signed-in account has AutoLogin 1.
+        let current = r#""users"
+{
+	"76561198000000001"
+	{
+		"AccountName"		"a"
+		"AutoLogin"		"0"
+	}
+	"76561198000000002"
+	{
+		"AccountName"		"b"
+		"AutoLogin"		"1"
+	}
+}"#;
+        assert_eq!(signed_in_user(current), Some(76561198000000002));
+
+        // Older clients: MostRecent wins.
+        let older = r#""users"
+{
+	"76561198000000001"
+	{
+		"MostRecent"		"1"
+		"AutoLogin"		"0"
+	}
+	"76561198000000002"
+	{
+		"MostRecent"		"0"
+		"AutoLogin"		"1"
+	}
+}"#;
+        assert_eq!(signed_in_user(older), Some(76561198000000001));
+
+        let lowercase =
+            "\"users\"\n{\n\t\"76561198000000003\"\n\t{\n\t\t\"autologin\"\t\t\"1\"\n\t}\n}";
+        assert_eq!(signed_in_user(lowercase), Some(76561198000000003));
+
+        let nobody =
+            "\"users\"\n{\n\t\"76561198000000001\"\n\t{\n\t\t\"AutoLogin\"\t\t\"0\"\n\t}\n}";
+        assert_eq!(signed_in_user(nobody), None);
+    }
 }
