@@ -53,7 +53,6 @@ use std::io::{self, ErrorKind};
 use std::thread::sleep;
 use std::time::Instant;
 
-use sysinfo::System;
 use tracing::{debug, info, warn};
 use valveprotos::deadlock::CMsgClientToGcGetMatchMetaDataResponse;
 
@@ -144,7 +143,7 @@ pub(crate) fn run_pass_blocking() {
 }
 
 fn find_game() -> Option<u32> {
-    game_process::find_pid(&mut System::new())
+    game_process::find_pid(&mut game_process::new_system())
 }
 
 /// Whether this process may read the game. Only one per user does, as the watcher and a

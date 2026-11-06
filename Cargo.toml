@@ -19,7 +19,7 @@ walkdir = "2.5.0"
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+sysinfo = { version = "0.40.1", default-features = false, features = ["system"] }
 
 # Steam Game Coordinator match-salt recovery (see src/gc/).
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "time"] }
@@ -64,7 +64,7 @@ windows-sys = { version = "0.61", features = [
 # Windows icon + version info (works with the MinGW toolchain, unlike winres).
 embed-resource = "3.0"
 # Decodes icon.ico for the GUI's window icon.
-ico = "0.5"
+ico = "0.6"
 
 [profile.release]
 # Debug symbols are most of the MinGW exe (52 MB -> 31 MB); users only download it.

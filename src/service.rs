@@ -88,7 +88,7 @@ pub(crate) fn stop_other_instances(keep_gui: bool) {
     use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
 
     let own_pid = sysinfo::get_current_pid().ok();
-    let mut sys = sysinfo::System::new();
+    let mut sys = crate::game_process::new_system();
     sys.refresh_processes_specifics(
         ProcessesToUpdate::All,
         true,

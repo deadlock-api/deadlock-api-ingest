@@ -117,7 +117,7 @@ async fn post(salts: Salts, source: Source) -> bool {
 /// Tokio runtime so the rest of the crate stays synchronous. Safe to call repeatedly;
 /// the persisted per-account quota gates it to 40/24h regardless of pass frequency.
 pub(crate) fn run_pass_blocking() {
-    let mut sys = sysinfo::System::new();
+    let mut sys = crate::game_process::new_system();
     if game_running(&mut sys) {
         info!("gc: Deadlock is running, skipping GC pass");
         return;
@@ -549,7 +549,7 @@ fn active_friends(friends: &[u32]) -> Result<Vec<ActiveFriend>, GcError> {
 /// that deadlock-api doesn't know yet. Ignores the 40/24h quota and runs until done or
 /// until Steam rate-limits the account. Returns whether every match was recovered.
 pub(crate) fn run_own_matches_blocking() -> bool {
-    let mut sys = sysinfo::System::new();
+    let mut sys = crate::game_process::new_system();
     if game_running(&mut sys) {
         warn!("Deadlock is running, close it and run this again");
         return false;
