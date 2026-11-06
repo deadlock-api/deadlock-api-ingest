@@ -133,7 +133,7 @@ fn monitor_resources(
     stop_signal: Arc<AtomicBool>,
 ) -> ResourceStats {
     let mut stats = ResourceStats::new();
-    let mut system = System::new_all();
+    let mut system = System::new_all().expect("sysinfo supports this OS");
     let start = Instant::now();
 
     // Initial refresh to get baseline

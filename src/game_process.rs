@@ -4,6 +4,12 @@ use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 use crate::game_names::is_game;
 
+/// An empty process table. sysinfo only fails this on OSes it doesn't support, and this
+/// program runs only on ones it does.
+pub(crate) fn new_system() -> System {
+    System::new().expect("sysinfo supports this OS")
+}
+
 /// The running game's pid, if any.
 pub(crate) fn find_pid(sys: &mut System) -> Option<u32> {
     sys.refresh_processes_specifics(
