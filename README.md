@@ -189,14 +189,20 @@ If the background tool isn't running, the window sets it up and starts it: a sys
 
 Instead of running the ingest service as a persistent background process, you can configure it to run only while Deadlock is active by using Steam's launch options. The service will start when you launch the game and automatically stop when the game exits.
 
-1. Download the binary to a known location (e.g., `~/.local/bin/deadlock-api-ingest` on Linux or `%LOCALAPPDATA%\deadlock-api-ingest\deadlock-api-ingest.exe` on Windows)
+1. Download the binary to a known location (the Linux installer puts it in `~/.local/share/deadlock-api-ingest/deadlock-api-ingest`; on Windows use `%LOCALAPPDATA%\deadlock-api-ingest\deadlock-api-ingest.exe`)
 2. In Steam, right-click **Deadlock** → **Properties** → **General** → **Launch Options**
-3. Set the launch option:
+3. Set the launch option, with the full path: Steam doesn't look in `~/.local/bin`.
 
 **Linux:**
 ```
-/home/YOUR_USER/.local/bin/deadlock-api-ingest -- %command%
+/home/YOUR_USER/.local/share/deadlock-api-ingest/deadlock-api-ingest -- %command%
 ```
+
+**Linux, Flatpak Steam:** Steam runs launch options in its sandbox, which can't see your home directory, so the game won't start until you share the binary's folder with it (read-only):
+```
+flatpak override --user --filesystem=~/.local/share/deadlock-api-ingest:ro com.valvesoftware.Steam
+```
+Then use the launch option above. Share the folder rather than `~/.local/bin`: the installer's `~/.local/bin/deadlock-api-ingest` is only a link to it, and updates replace the binary there. The background service also works with Flatpak Steam and needs none of this.
 
 **Windows:**
 ```

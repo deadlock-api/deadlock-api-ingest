@@ -316,6 +316,18 @@ EOF
 
 
 
+# Steam runs launch options without ~/.local/bin on PATH, so the hint names the full path, of
+# the real binary: ~/.local/bin only holds a symlink to it. Flatpak Steam runs them in its
+# sandbox, which sees neither, until the binary's directory is shared with it.
+log_launch_option_hint() {
+    local exe="$INSTALL_DIR/$FINAL_EXECUTABLE_NAME"
+    log "INFO" "Starting the game with this Steam launch option also works: $exe -- %command%"
+    if [[ -d "$HOME/.var/app/com.valvesoftware.Steam" ]]; then
+        log "INFO" "With Flatpak Steam, first let Steam see it:"
+        log "INFO" "  flatpak override --user --filesystem=$INSTALL_DIR:ro com.valvesoftware.Steam"
+    fi
+}
+
 # Installs the helper that lets the service read match salts from Deadlock's memory. Most
 # distributions only let a program read another's memory if it started it, and Steam starts
 # the game, so the helper gets that one right (cap_sys_ptrace) and is kept root-owned.
@@ -343,7 +355,8 @@ install_memory_helper() {
         echo -n "Install the memory helper? (Y/n): " >&2
         read -t 30 -r response < /dev/tty || true
         if [[ "${response,,}" == n* ]]; then
-            log "INFO" "Skipped. Starting the game with '$APP_NAME -- %command%' in Steam also works."
+            log "INFO" "Skipped."
+            log_launch_option_hint
             return 0
         fi
     fi
@@ -361,7 +374,7 @@ install_memory_helper() {
         log "SUCCESS" "Memory helper installed."
     else
         log "WARN" "Could not install the memory helper (setcap comes with libcap2-bin or libcap)."
-        log "INFO" "Starting the game with '$APP_NAME -- %command%' in Steam also works."
+        log_launch_option_hint
     fi
     rm -f "$helper_tmp"
 }
