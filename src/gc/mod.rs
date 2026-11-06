@@ -45,8 +45,8 @@ use crate::utils::Salts;
 const GC_MIN_INTERVAL: Duration = Duration::from_secs(20);
 // Between background passes. Most passes no-op quickly once the 24h quota is spent.
 const BACKGROUND_PASS_INTERVAL: Duration = Duration::from_mins(30);
-// An account whose GC handshake failed (e.g. doesn't own the game) fails identically
-// every pass; skip it for a day rather than re-paying the connect/timeout cost.
+// An account that can't log on, or whose GC never answers (e.g. doesn't own the game),
+// fails identically every pass; skip it for a day rather than re-paying the timeout cost.
 const GC_BACKOFF_SECS: i64 = 24 * 60 * 60;
 // Friend history lookups per account per pass, on top of the 20/24h history quota, so one
 // pass doesn't spend the whole day's budget at once.
@@ -207,7 +207,8 @@ async fn run_account(
     }
 
     // Any connect failure means this account can't serve requests right now; back it off
-    // for a day and let the batch move on. A successful connect clears any prior backoff.
+    // for a day and let the batch move on. A successful connect clears any prior backoff;
+    // a GC that then never answers sets it again below.
     let session = match GcSession::connect(ctx).await {
         Ok(s) => {
             if backoff.is_some() {
@@ -236,11 +237,20 @@ async fn run_account(
         last_request,
         sys,
     };
-    // Friends' fresh matches go first; whatever quota is left goes to the global list.
-    let mut match_ids = run.friend_matches().await;
-    match_ids.extend(fresh_newest_first(to_fetch, run.processed, usize::MAX));
-    let fetched = run.fetch_salts(match_ids).await;
-
+    let fetched = match run.fetch(to_fetch).await {
+        Ok(fetched) => fetched,
+        // Only the GC answering once this run shows it serves the account; then this is
+        // likely a hiccup, and the next pass may try again.
+        Err(e) if run.session.gc_answered() => {
+            warn!("gc: account {account} lost the GC, stopping: {e}");
+            return Ok(());
+        }
+        Err(e) => {
+            warn!("gc: account {account} cannot reach the GC: {e}");
+            store.set_backoff(ctx.steam_id64, Some(now + GC_BACKOFF_SECS))?;
+            return Ok(());
+        }
+    };
     info!("gc: account {account} fetched {fetched} match salt(s)");
     Ok(())
 }
@@ -265,6 +275,14 @@ struct AccountRun<'a> {
 }
 
 impl AccountRun<'_> {
+    /// Friends' fresh matches first, then `to_fetch` with whatever quota is left. Returns
+    /// how many salts were posted, or `GcHandshakeFailed` if the GC stopped answering.
+    async fn fetch(&mut self, to_fetch: Vec<u64>) -> Result<u32, GcError> {
+        let mut match_ids = self.friend_matches().await?;
+        match_ids.extend(fresh_newest_first(to_fetch, self.processed, usize::MAX));
+        self.fetch_salts(match_ids).await
+    }
+
     /// Record one salt fetch (or, if `exhaust`, Steam's rate limit) and persist it.
     fn spend_salt(&mut self, exhaust: bool) -> Result<(), GcError> {
         if exhaust {
@@ -288,8 +306,9 @@ impl AccountRun<'_> {
 
     /// Fetch and post salts for `match_ids` in order, skipping ones already processed this
     /// pass, until the salt quota is spent or the run must stop (rate limit, game
-    /// launched). Returns how many were posted.
-    async fn fetch_salts(&mut self, match_ids: Vec<u64>) -> u32 {
+    /// launched). Returns how many were posted, or `GcHandshakeFailed` if the GC stopped
+    /// answering.
+    async fn fetch_salts(&mut self, match_ids: Vec<u64>) -> Result<u32, GcError> {
         let account = self.ctx.account_id();
         let given_up = self
             .store
@@ -329,6 +348,8 @@ impl AccountRun<'_> {
                     info!("gc: account {account} started playing a game, stopping");
                     break;
                 }
+                // Not the match's fault either, and every further match would only time out.
+                Err(e @ GcError::GcHandshakeFailed(_)) => return Err(e),
                 // Any other failure fetched nothing; skip the id so it isn't retried this pass.
                 Err(e) => {
                     warn!("gc: account {account} salt fetch failed for {match_id}: {e}");
@@ -348,17 +369,17 @@ impl AccountRun<'_> {
                 fetched += 1;
             }
         }
-        fetched
+        Ok(fetched)
     }
 
     /// Matches deadlock-api is missing salts for, newest first, from the histories of
     /// friends who most likely played since the API last saw them. Best-effort: any
-    /// failure just yields fewer (or no) matches.
-    async fn friend_matches(&mut self) -> Vec<u64> {
+    /// failure just yields fewer (or no) matches, except `GcHandshakeFailed`.
+    async fn friend_matches(&mut self) -> Result<Vec<u64>, GcError> {
         let now = now_secs();
         let budget = history_budget(&self.history_quota, now).min(self.quota.remaining(now));
         if budget == 0 || self.session.friends.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         let picks = match self.pick_friends(budget).await {
             Ok(p) => p,
@@ -367,14 +388,14 @@ impl AccountRun<'_> {
                     "gc: friend lookup failed for account {}: {e}",
                     self.ctx.account_id()
                 );
-                return Vec::new();
+                return Ok(Vec::new());
             }
         };
 
-        let found = self.lookup_histories(picks).await;
+        let found = self.lookup_histories(picks).await?;
         let mut new_ids = fresh_newest_first(found, self.processed, usize::MAX);
         if new_ids.is_empty() {
-            return new_ids;
+            return Ok(new_ids);
         }
         let ids = new_ids.clone();
         match blocking(move || api::known_match_ids(&ids)).await {
@@ -391,7 +412,7 @@ impl AccountRun<'_> {
             self.ctx.account_id(),
             new_ids.len()
         );
-        new_ids
+        Ok(new_ids)
     }
 
     /// Up to `budget` friends worth a history lookup, most likely first, each with the
@@ -436,8 +457,9 @@ impl AccountRun<'_> {
     }
 
     /// Fetch each friend's newest history page and return the match ids newer than what
-    /// deadlock-api has stored for them. Spends the history quota and sets cooldowns.
-    async fn lookup_histories(&mut self, picks: Vec<(u32, u64)>) -> Vec<u64> {
+    /// deadlock-api has stored for them. Spends the history quota and sets cooldowns, except
+    /// when the GC never answered: that is `GcHandshakeFailed`, and no request was made.
+    async fn lookup_histories(&mut self, picks: Vec<(u32, u64)>) -> Result<Vec<u64>, GcError> {
         let mut new_ids = Vec::new();
         for (friend, latest_stored) in picks {
             throttle(self.last_request, GC_MIN_INTERVAL).await;
@@ -445,8 +467,10 @@ impl AccountRun<'_> {
                 break;
             }
             let result = self.session.fetch_recent_matches(friend).await;
-            if matches!(result, Err(GcError::AccountInUse)) {
-                break;
+            match result {
+                Err(GcError::AccountInUse) => break,
+                Err(e @ GcError::GcHandshakeFailed(_)) => return Err(e),
+                _ => {}
             }
             let rate_limited = matches!(result, Err(GcError::GcRateLimited));
             // Every request counts against Steam's limit, whatever it answers.
@@ -478,7 +502,7 @@ impl AccountRun<'_> {
                 warn!("gc: {e}");
             }
         }
-        new_ids
+        Ok(new_ids)
     }
 }
 
@@ -636,7 +660,10 @@ async fn run_own_account(
 
         let salts = match session.fetch_match_salts(match_id).await {
             Ok(s) => s,
-            Err(e @ (GcError::GcRateLimited | GcError::AccountInUse)) => return Err(e),
+            Err(
+                e
+                @ (GcError::GcRateLimited | GcError::AccountInUse | GcError::GcHandshakeFailed(_)),
+            ) => return Err(e),
             Err(e) => {
                 warn!("gc: salt fetch failed for {match_id}: {e}");
                 record_salt_attempt(store, match_id);

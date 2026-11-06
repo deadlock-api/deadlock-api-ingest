@@ -5,8 +5,12 @@ pub(crate) enum GcError {
     /// No usable Steam session on this machine (logged out, "remember me" off,
     /// or the `ConnectCache` blob could not be decrypted).
     AuthUnavailable(String),
-    /// The GC handshake or a GC job failed (e.g. the account does not own the game).
+    /// Steam or a GC job failed: no CM connection, or the GC answered a request badly.
     GcUnavailable(String),
+    /// The GC never welcomed the session (the account doesn't own the game, or the GC is
+    /// down). Says nothing about the request it was for, and every further request this
+    /// pass would fail the same way after a full timeout.
+    GcHandshakeFailed(String),
     /// Steam's GC answered but is throttling this account; back off, don't burn quota.
     GcRateLimited,
     /// The GC refused a friend's match history (their profile is private).
@@ -27,6 +31,7 @@ impl Display for GcError {
         match self {
             GcError::AuthUnavailable(s) => write!(f, "Steam session unavailable: {s}"),
             GcError::GcUnavailable(s) => write!(f, "Steam GC unavailable: {s}"),
+            GcError::GcHandshakeFailed(s) => write!(f, "Steam GC did not answer: {s}"),
             GcError::GcRateLimited => write!(f, "Steam GC rate-limited the request"),
             GcError::HistoryPrivate => write!(f, "match history is private"),
             GcError::AccountInUse => write!(f, "the Steam account is playing a game"),
