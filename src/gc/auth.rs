@@ -106,9 +106,7 @@ fn all_account_ids(steam_dir: &Path) -> Result<Vec<(u64, String)>, GcError> {
 /// skipped with a warning rather than failing the whole recovery — this is what
 /// makes multi-account best-effort (some accounts simply can't do requests).
 pub(crate) fn recover_all() -> Result<Vec<AuthContext>, GcError> {
-    let steam =
-        steamlocate::SteamDir::locate().map_err(|e| err(format!("Steam not found: {e}")))?;
-    let steam_dir = steam.path();
+    let steam_dir = crate::steam_dir::primary().ok_or_else(|| err("Steam not found"))?;
     let local_vdf = local_vdf_path(steam_dir)?;
     let text = std::fs::read_to_string(&local_vdf)
         .map_err(|e| err(format!("cannot read local.vdf: {e}")))?;

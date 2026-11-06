@@ -18,8 +18,9 @@ pub(crate) fn current_steam_id3() -> Option<u32> {
 ///
 /// Steam marks the active user with `"MostRecent" "1"` in this file.
 fn get_current_steam_id64() -> Option<u64> {
-    let steam_dir = steamlocate::SteamDir::locate().ok()?;
-    let vdf_path = steam_dir.path().join("config").join("loginusers.vdf");
+    let vdf_path = crate::steam_dir::primary()?
+        .join("config")
+        .join("loginusers.vdf");
     let content = fs::read_to_string(&vdf_path).ok()?;
 
     parse_login_users(&content)

@@ -74,6 +74,7 @@ mod install;
 mod paths;
 mod scan_cache;
 mod service;
+mod steam_dir;
 mod steam_user;
 mod update;
 mod utils;
@@ -203,41 +204,11 @@ fn main() {
         console::hide_own_console();
     }
 
-    let Ok(steam_dir) = steamlocate::SteamDir::locate() else {
-        error!("Could not find Steam directory. Waiting 30s before exiting.");
+    let cache_dirs = find_cache_dirs();
+    if cache_dirs.is_empty() {
+        error!("Could not find Steam's cache directory. Waiting 30s before exiting.");
         std::thread::sleep(core::time::Duration::from_secs(30));
         std::process::exit(1);
-    };
-    let steam_path = steam_dir.path();
-    let mut cache_dir = steam_path.join("appcache").join("httpcache");
-
-    if !cache_dir.exists() {
-        let home_dir = dirs::home_dir().unwrap_or_default();
-        let appcache_search = std::ffi::OsStr::new("appcache");
-        for entry in walkdir::WalkDir::new(&home_dir)
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter(|e| e.file_type().is_dir())
-        {
-            if entry.file_name() == "httpcache"
-                && entry
-                    .path()
-                    .parent()
-                    .and_then(|p| p.file_name())
-                    .is_some_and(|p| p == appcache_search)
-            {
-                cache_dir = entry.path().to_path_buf();
-                break;
-            }
-        }
-        if !cache_dir.exists() {
-            error!(
-                "Could not find Steam cache directory at {}. Waiting 30s before exiting.",
-                cache_dir.display()
-            );
-            std::thread::sleep(core::time::Duration::from_secs(30));
-            std::process::exit(1);
-        }
     }
 
     // In launch-wrapper mode on Linux this runs in the game's ancestor, which Yama's
@@ -249,20 +220,19 @@ fn main() {
     if !args.command.is_empty() {
         let exit_code = run_launch_wrapper(
             move || {
-                scan_cache::initial_cache_dir_ingest(&cache_dir);
-                loop {
-                    if let Err(e) = scan_cache::watch_cache_dir(&cache_dir) {
-                        warn!("Error in cache watcher: {e:?}");
-                    }
-                    std::thread::sleep(core::time::Duration::from_secs(10));
+                for cache_dir in &cache_dirs {
+                    scan_cache::initial_cache_dir_ingest(cache_dir);
                 }
+                watch_cache_dirs(cache_dirs);
             },
             &args.command,
         );
         std::process::exit(exit_code);
     }
 
-    scan_cache::initial_cache_dir_ingest(&cache_dir);
+    for cache_dir in &cache_dirs {
+        scan_cache::initial_cache_dir_ingest(cache_dir);
+    }
 
     if args.once {
         if !args.no_gc {
@@ -278,12 +248,57 @@ fn main() {
         gc::spawn_background();
     }
 
-    loop {
-        if let Err(e) = scan_cache::watch_cache_dir(&cache_dir) {
-            warn!("Error in cache watcher: {e:?}");
-        }
-        std::thread::sleep(core::time::Duration::from_secs(10));
+    watch_cache_dirs(cache_dirs);
+}
+
+/// The httpcache of every Steam install found, for people who use more than one; the
+/// install `steam_dir::primary` picked comes first. Falls back to searching the home
+/// directory when none of them has one.
+fn find_cache_dirs() -> Vec<std::path::PathBuf> {
+    let cache_dirs = steam_dir::all()
+        .iter()
+        .map(|dir| dir.join("appcache").join("httpcache"))
+        .filter(|dir| dir.is_dir())
+        .collect::<Vec<_>>();
+    if !cache_dirs.is_empty() {
+        return cache_dirs;
     }
+
+    let home_dir = dirs::home_dir().unwrap_or_default();
+    let appcache_search = std::ffi::OsStr::new("appcache");
+    walkdir::WalkDir::new(&home_dir)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_dir())
+        .find(|entry| {
+            entry.file_name() == "httpcache"
+                && entry
+                    .path()
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .is_some_and(|p| p == appcache_search)
+        })
+        .map(walkdir::DirEntry::into_path)
+        .into_iter()
+        .collect()
+}
+
+/// Watches every cache dir, each on its own thread; never returns.
+fn watch_cache_dirs(cache_dirs: Vec<std::path::PathBuf>) -> ! {
+    let watch = |cache_dir: &std::path::Path| -> ! {
+        loop {
+            if let Err(e) = scan_cache::watch_cache_dir(cache_dir) {
+                warn!("Error in cache watcher: {e:?}");
+            }
+            std::thread::sleep(core::time::Duration::from_secs(10));
+        }
+    };
+    let mut cache_dirs = cache_dirs.into_iter();
+    let first = cache_dirs.next().expect("at least one cache dir");
+    for cache_dir in cache_dirs {
+        std::thread::spawn(move || watch(&cache_dir));
+    }
+    watch(&first)
 }
 
 #[cfg(test)]
