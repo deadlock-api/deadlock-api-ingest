@@ -191,15 +191,20 @@ mod platform {
     /// Runs `exe --version`, so a build this system can't start (e.g. one linked against a
     /// newer glibc than it has) never replaces the working one.
     pub(super) fn starts(exe: &Path) -> std::io::Result<()> {
-        let out = Command::new(exe).arg("--version").output()?;
+        let doesnt_start =
+            |why: String| std::io::Error::other(format!("the new version doesn't start: {why}"));
+        let out = Command::new(exe)
+            .arg("--version")
+            .output()
+            .map_err(|e| doesnt_start(e.to_string()))?;
         if out.status.success() {
             return Ok(());
         }
-        Err(std::io::Error::other(format!(
-            "the new version doesn't start ({}): {}",
-            out.status,
-            String::from_utf8_lossy(&out.stderr).trim()
-        )))
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        Err(doesnt_start(match stderr.trim() {
+            "" => out.status.to_string(),
+            stderr => format!("{}, {stderr}", out.status),
+        }))
     }
 }
 
@@ -243,15 +248,16 @@ mod tests {
             "old-glibc",
             b"#!/bin/sh\necho \"version 'GLIBC_2.38' not found\" >&2\nexit 1\n",
         );
-        let crashes = exe("crashes", b"#!/bin/sh\nkill -SEGV $$\n");
+        let killed = exe("killed", b"#!/bin/sh\nkill -KILL $$\n");
         let garbage = exe("garbage", &[0; 64]);
 
         assert!(platform::starts(&ok).is_ok());
         let err = platform::starts(&old_glibc).unwrap_err().to_string();
         assert!(err.contains("GLIBC_2.38"), "{err}");
-        let err = platform::starts(&crashes).unwrap_err().to_string();
-        assert!(err.contains("SIGSEGV"), "{err}");
-        assert!(platform::starts(&garbage).is_err());
+        let err = platform::starts(&killed).unwrap_err().to_string();
+        assert!(err.ends_with("(SIGKILL)"), "{err}");
+        let err = platform::starts(&garbage).unwrap_err().to_string();
+        assert!(err.contains("doesn't start"), "{err}");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
