@@ -4,8 +4,8 @@ use core::time::Duration;
 use serde::Serialize;
 use std::sync::OnceLock;
 use std::thread::sleep;
-use tracing::debug;
-use ureq::Error::StatusCode;
+use tracing::{debug, warn};
+use ureq::http::StatusCode;
 use valveprotos::deadlock::CMsgClientToGcGetMatchMetaDataResponse;
 
 /// The API rejects larger match ids.
@@ -118,77 +118,200 @@ impl Salts {
         if self.match_id > MAX_MATCH_ID {
             return Err(Error::MatchIdTooLarge);
         }
-
-        let max_retries = 10;
-        let mut attempt = 0;
-
-        loop {
-            attempt += 1;
-            debug!("Ingesting salts: {self:?} (retry {attempt}/{max_retries})");
-            let response = http_client()
-                .post("https://api.deadlock-api.com/v1/matches/salts")
-                .send_json([self]);
-            match response {
-                Ok(r) if r.status().is_success() => {
-                    ingestion_cache::mark_ingested(self, source);
-                    return Ok(());
-                }
-                Ok(mut resp) if attempt == max_retries => {
-                    let text = resp.body_mut().read_to_string().unwrap_or_default();
-                    return Err(Error::FailedToIngest(text));
-                }
-                Err(e) if attempt == max_retries || matches!(e, StatusCode(s) if s == 400) => {
-                    return Err(Error::Ureq(e));
-                }
-                _ => sleep(Duration::from_secs(3)), // Retry on error
-            }
-        }
+        Self::ingest_batch(core::slice::from_ref(self), source)
     }
 
+    /// Like [`Self::ingest`] for many salts, in batches the API accepts. A failed batch
+    /// doesn't stop the ones after it; the first failure is returned, later ones are logged.
     pub(crate) fn ingest_many(salts: &[Salts], source: Source) -> Result<(), Error> {
-        salts
-            .chunks(MAX_SALTS_PER_REQUEST)
-            .try_for_each(|batch| Self::ingest_batch(batch, source))
+        for_each_batch(salts, |batch| Self::ingest_batch(batch, source))
     }
 
     fn ingest_batch(salts: &[Salts], source: Source) -> Result<(), Error> {
-        let max_retries = 10;
-        let num_salts = salts.len();
-        let mut attempt = 0;
-        loop {
-            attempt += 1;
-            if attempt > 1 {
-                debug!("Ingesting {num_salts} salts (retry {attempt}/{max_retries})");
-            } else {
-                debug!("Ingesting {num_salts} salts");
-            }
+        post_salts(SALTS_URL, salts, RETRY_DELAY)?;
+        for salt in salts {
+            ingestion_cache::mark_ingested(salt, source);
+        }
+        Ok(())
+    }
+}
 
-            let response = http_client()
-                .post("https://api.deadlock-api.com/v1/matches/salts")
-                .send_json(salts);
-            match response {
-                Ok(r) if r.status().is_success() => {
-                    for salt in salts {
-                        ingestion_cache::mark_ingested(salt, source);
-                    }
-                    return Ok(());
-                }
-                Ok(mut resp) if attempt == max_retries => {
-                    let text = resp.body_mut().read_to_string().unwrap_or_default();
-                    return Err(Error::FailedToIngest(text));
-                }
-                Err(e) if attempt == max_retries || matches!(e, StatusCode(s) if s == 400) => {
-                    return Err(Error::Ureq(e));
-                }
-                _ => sleep(Duration::from_secs(3)), // Retry on error
+const SALTS_URL: &str = "https://api.deadlock-api.com/v1/matches/salts";
+const MAX_ATTEMPTS: u32 = 10;
+const RETRY_DELAY: Duration = Duration::from_secs(3);
+
+/// Runs `send` on every batch of at most [`MAX_SALTS_PER_REQUEST`] salts, even after one fails.
+fn for_each_batch(
+    salts: &[Salts],
+    mut send: impl FnMut(&[Salts]) -> Result<(), Error>,
+) -> Result<(), Error> {
+    let mut first_error = None;
+    for batch in salts.chunks(MAX_SALTS_PER_REQUEST) {
+        if let Err(e) = send(batch) {
+            if first_error.is_none() {
+                first_error = Some(e);
+            } else {
+                warn!("Failed to ingest {} salts: {e}", batch.len());
             }
         }
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
+/// POSTs `salts` to `url`. Connection errors, 429 and 5xx are retried, up to
+/// [`MAX_ATTEMPTS`] tries `retry_delay` apart; any other non-2xx fails at once, since
+/// sending the same body again won't change the answer.
+fn post_salts(url: &str, salts: &[Salts], retry_delay: Duration) -> Result<(), Error> {
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        if let [salt] = salts {
+            debug!("Ingesting salts: {salt:?} (attempt {attempt}/{MAX_ATTEMPTS})");
+        } else {
+            let n = salts.len();
+            debug!("Ingesting {n} salts (attempt {attempt}/{MAX_ATTEMPTS})");
+        }
+
+        let response = http_client()
+            .post(url)
+            .config()
+            .http_status_as_error(false)
+            .build()
+            .send_json(salts);
+        let error = match response {
+            Ok(r) if r.status().is_success() => return Ok(()),
+            Ok(mut r) => {
+                let status = r.status();
+                let body = r.body_mut().read_to_string().unwrap_or_default();
+                let error = Error::Rejected {
+                    status: status.as_u16(),
+                    body,
+                };
+                if !(status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS) {
+                    return Err(error);
+                }
+                error
+            }
+            Err(e) => Error::Ureq(e),
+        };
+        if attempt >= MAX_ATTEMPTS {
+            return Err(error);
+        }
+        debug!("Salt upload failed, retrying in {retry_delay:?}: {error}");
+        sleep(retry_delay);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+
+    /// A local server answering its `n`th request with `answers[n]` (the last one once
+    /// they run out); returns its URL and a count of the requests it got.
+    fn serve(answers: &'static [(u16, &'static str)]) -> (String, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let requests = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&requests);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut reader = BufReader::new(stream.unwrap());
+                let mut content_length = 0;
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some((name, value)) = line.split_once(':')
+                        && name.eq_ignore_ascii_case("content-length")
+                    {
+                        content_length = value.trim().parse().unwrap();
+                    }
+                }
+                reader.read_exact(&mut vec![0; content_length]).unwrap();
+
+                let n = count.fetch_add(1, Ordering::SeqCst);
+                let (status, body) = answers[n.min(answers.len() - 1)];
+                write!(
+                    reader.get_mut(),
+                    "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+        });
+        (url, requests)
+    }
+
+    fn salt(match_id: u64) -> Salts {
+        Salts {
+            match_id,
+            cluster_id: Some(1),
+            metadata_salt: Some(2),
+            replay_salt: None,
+            username: None,
+        }
+    }
+
+    #[test]
+    fn a_client_error_is_not_retried_and_keeps_the_apis_reason() {
+        let (url, requests) = serve(&[(422, "Too many salts provided (max 1000, got 1001)")]);
+        let err = post_salts(&url, &[salt(1)], Duration::ZERO).unwrap_err();
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            err.to_string(),
+            "API answered 422: Too many salts provided (max 1000, got 1001)"
+        );
+    }
+
+    #[test]
+    fn server_errors_and_rate_limits_are_retried() {
+        let (url, requests) = serve(&[(500, ""), (429, ""), (503, ""), (200, "")]);
+        post_salts(&url, &[salt(1)], Duration::ZERO).unwrap();
+        assert_eq!(requests.load(Ordering::SeqCst), 4);
+    }
+
+    #[test]
+    fn retries_stop_after_max_attempts_with_the_last_answer() {
+        let (url, requests) = serve(&[(500, "down")]);
+        let err = post_salts(&url, &[salt(1)], Duration::ZERO).unwrap_err();
+        assert_eq!(requests.load(Ordering::SeqCst), MAX_ATTEMPTS as usize);
+        assert_eq!(err.to_string(), "API answered 500: down");
+    }
+
+    #[test]
+    fn a_long_rejection_body_is_cut() {
+        let body = "x".repeat(1000);
+        let err = Error::Rejected { status: 502, body };
+        assert_eq!(
+            err.to_string(),
+            format!("API answered 502: {}…", "x".repeat(300))
+        );
+    }
+
+    #[test]
+    fn a_failed_batch_does_not_stop_the_rest() {
+        let salts: Vec<Salts> = (1..=2500).map(salt).collect();
+        let mut sent = Vec::new();
+        let result = for_each_batch(&salts, |batch| {
+            sent.push(batch.len());
+            if sent.len() == 1 {
+                Err(Error::Rejected {
+                    status: 500,
+                    body: String::new(),
+                })
+            } else {
+                Ok(())
+            }
+        });
+        assert_eq!(sent, [1000, 1000, 500]);
+        assert_eq!(result.unwrap_err().to_string(), "API answered 500");
+    }
 
     #[test]
     fn test_extract_salts() {
