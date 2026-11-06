@@ -3,4 +3,7 @@ ignore = [
     # rsa Marvin timing attack; no patched release exists. Only reached via steam-vent,
     # which uses RsaPublicKey (encrypt/verify) and never holds a private key.
     "RUSTSEC-2023-0071",
+    # pin-utils is unmaintained, no vulnerability. Only reached via iced_futures -> wasmtimer,
+    # a wasm32-only dependency that is never built for our targets; iced 0.14 is the latest.
+    "RUSTSEC-2026-0441",
 ]
