@@ -150,7 +150,7 @@ impl GcSession {
             .await
             .ok()
             .and_then(Result::ok);
-        let friends = list.as_ref().map(friend_account_ids).unwrap_or_default();
+        let friends = list.as_ref().map_or_default(friend_account_ids);
         if list.is_none() {
             warn!(
                 "gc: Steam sent no friends list for account {}",
