@@ -42,7 +42,7 @@ impl GameProcess {
                     return Err(e);
                 };
                 open_through_helper(helper, pid).map_err(|err| {
-                    let why = helper_blocked().map_or_default(|why| format!(" ({why})"));
+                    let why = helper_blocked().map_or_else(String::new, |why| format!(" ({why})"));
                     io::Error::new(
                         ErrorKind::PermissionDenied,
                         format!("{e}; {helper}: {err}{why}"),
@@ -57,7 +57,7 @@ impl GameProcess {
     /// Readable, private, anonymous mappings: where Wine puts the game's heap.
     pub(super) fn regions(&self) -> Vec<Region> {
         fs::read_to_string(format!("/proc/{}/maps", self.pid))
-            .map_or_default(|maps| heap_regions(&maps))
+            .map_or_else(|_| Vec::new(), |maps| heap_regions(&maps))
     }
 
     /// Reads up to `buf.len()` bytes at `addr`; 0 when the memory is gone.
