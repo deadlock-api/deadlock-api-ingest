@@ -1,6 +1,6 @@
 [package]
 name = "deadlock-api-ingest"
-version = "0.4.8"
+version = "0.5.0"
 description = "Deadlock API Ingest"
 repository = "https://github.com/deadlock-api/deadlock-api-ingest"
 license = "MIT"
@@ -45,6 +45,10 @@ iced = { version = "0.14", default-features = false, features = ["tiny-skia", "x
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { version = "1", features = ["fs", "net", "process"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# getuid, for the launchctl domain of the LaunchAgent.
+rustix = { version = "1", features = ["process"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.56.0"

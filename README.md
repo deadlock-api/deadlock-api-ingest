@@ -6,7 +6,7 @@ A lightweight background tool that monitors your Steam HTTP cache for Deadlock g
 
 The application scans Steam's local HTTP cache directory (`Steam/appcache/httpcache/`) for Deadlock replay URLs (`.meta.bz2` and `.dem.bz2` files). When it finds replay file references, it extracts the match IDs and salts, then submits them to the Deadlock API at `api.deadlock-api.com`. This allows the API to fetch and process match data from Valve's servers.
 
-While Deadlock runs, it also reads match salts from the game's memory, read-only: the replies the game gets when it loads a match, and replay addresses it keeps. That covers matches whose files Steam hasn't downloaded. It never writes to or injects anything into the game. Pass `--no-memory` to turn this off.
+While Deadlock runs, it also reads match salts from the game's memory, read-only: the replies the game gets when it loads a match, and replay addresses it keeps. That covers matches whose files Steam hasn't downloaded. It never writes to or injects anything into the game. Pass `--no-memory` to turn this off. This works on Windows and Linux, not on macOS.
 
 While Deadlock is closed, every 30 minutes, it also asks Steam's Game Coordinator for match salts deadlock-api doesn't have yet. It logs in with the saved session of every Steam account on the PC that has "remember me" on (the refresh token in Steam's `local.vdf`), checks which of that account's Steam friends play Deadlock, and fetches their new matches first, then matches from deadlock-api's list of missing ones. Each account makes at most 40 metadata requests and 20 friend match-history requests a day. The salts go to deadlock-api like the cache ones, credited to the account that fetched them. Pass `--no-gc` to turn this off; the launch option below never runs it.
 
@@ -77,6 +77,23 @@ chmod +x install-linux.sh
 > **Reading the game's memory**: most distributions only let a program read another's memory if it started it, and Steam starts Deadlock. The installer therefore offers a small helper, `/usr/local/libexec/deadlock-api-ingest/deadlock-api-ingest-memgrant`, which asks for your password once. It is the only part holding that right (`cap_sys_ptrace`), opens nothing but Deadlock's memory, read-only and for your user, and hands it to the application. Without it, starting the game through the [launch option](#steam-launch-option-alternative-to-background-service) works too.
 >
 > **Packaging**: a distribution package can ship the helper as `/usr/libexec/deadlock-api-ingest/deadlock-api-ingest-memgrant` or `/usr/lib/deadlock-api-ingest/deadlock-api-ingest-memgrant`, root-owned with `cap_sys_ptrace=ep`; the application looks there too.
+
+### macOS
+
+Open Terminal and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/install-macos.sh | bash
+```
+
+- It installs to `~/Library/Application Support/deadlock-api-ingest/` and links `~/.local/bin/deadlock-api-ingest` to it. No admin rights needed.
+- It runs in the background as a per-user LaunchAgent (`~/Library/LaunchAgents/com.deadlock-api.deadlock-api-ingest.plist`), which starts when you log in.
+- It adds a **Deadlock API Ingest** app to `~/Applications` that opens the [status window](#status-window). Find it in Launchpad or Spotlight.
+- One universal binary runs on Apple Silicon and Intel Macs.
+
+> **Note**: The binary isn't signed by Apple. The installer downloads it with `curl`, so Gatekeeper doesn't block it. If you download the `deadlock-api-ingest-macos` release file in a browser instead, macOS refuses to open it until you clear the quarantine flag: `xattr -d com.apple.quarantine deadlock-api-ingest-macos`.
+>
+> It reads the Steam cache and makes the Steam requests described in [How It Works](#how-it-works), but doesn't read the game's memory on macOS. It updates by running the installer again; the status window doesn't offer updates on macOS.
 
 ### Docker
 
@@ -169,6 +186,37 @@ systemd.user.services.deadlock-api-ingest = {
 
 Then enable: `systemctl --user enable --now deadlock-api-ingest`
 
+### nix-darwin
+
+Add the flake's nix-darwin module to your configuration:
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nix-darwin.url = "github:nix-darwin/nix-darwin";
+    nix-darwin.inputs.nixpkgs.follows = "nixpkgs";
+    deadlock-api-ingest.url = "github:deadlock-api/deadlock-api-ingest";
+  };
+
+  outputs = { self, nix-darwin, deadlock-api-ingest, ... }: {
+    darwinConfigurations.your-hostname = nix-darwin.lib.darwinSystem {
+      modules = [
+        deadlock-api-ingest.darwinModules.default
+        {
+          # The service runs as a launch agent of this user, who has Steam installed.
+          system.primaryUser = "your-username";
+          services.deadlock-api-ingest.enable = true;
+          # services.deadlock-api-ingest.gc = false;  # same as --no-gc
+        }
+      ];
+    };
+  };
+}
+```
+
+Then run `sudo darwin-rebuild switch --flake .#your-hostname`. The status window app shows up in `/Applications/Nix Apps`.
+
 ## Status Window
 
 ```bash
@@ -183,13 +231,13 @@ This opens a small window that shows:
 
 Only your own matches are counted: those from your Steam cache, and your match history recovered with `--own-matches`. Matches the tool fetches for other players through the Steam Game Coordinator are not shown.
 
-If the background tool isn't running, the window sets it up and starts it: a systemd user service on Linux, a per-user autostart entry on Windows. The window itself never uploads anything, so closing it changes nothing.
+If the background tool isn't running, the window sets it up and starts it: a systemd user service on Linux, a LaunchAgent on macOS, a per-user autostart entry on Windows. The window itself never uploads anything, so closing it changes nothing.
 
 ## Steam Launch Option (Alternative to Background Service)
 
 Instead of running the ingest service as a persistent background process, you can configure it to run only while Deadlock is active by using Steam's launch options. The service will start when you launch the game and automatically stop when the game exits.
 
-1. Download the binary to a known location (the Linux installer puts it in `~/.local/share/deadlock-api-ingest/deadlock-api-ingest`; on Windows use `%LOCALAPPDATA%\deadlock-api-ingest\deadlock-api-ingest.exe`)
+1. Download the binary to a known location (the Linux installer puts it in `~/.local/share/deadlock-api-ingest/deadlock-api-ingest`, the macOS installer in `~/Library/Application Support/deadlock-api-ingest/deadlock-api-ingest`; on Windows use `%LOCALAPPDATA%\deadlock-api-ingest\deadlock-api-ingest.exe`)
 2. In Steam, right-click **Deadlock** → **Properties** → **General** → **Launch Options**
 3. Set the launch option, with the full path: Steam doesn't look in `~/.local/bin`.
 
@@ -204,12 +252,17 @@ flatpak override --user --filesystem=~/.local/share/deadlock-api-ingest:ro com.v
 ```
 Then use the launch option above. Share the folder rather than `~/.local/bin`: the installer's `~/.local/bin/deadlock-api-ingest` is only a link to it, and updates replace the binary there. The background service also works with Flatpak Steam and needs none of this.
 
+**macOS** (quoted, for the space in `Application Support`):
+```
+"/Users/YOUR_USER/Library/Application Support/deadlock-api-ingest/deadlock-api-ingest" -- %command%
+```
+
 **Windows:**
 ```
 "C:\Users\YOUR_USER\AppData\Local\deadlock-api-ingest\deadlock-api-ingest.exe" -- %command%
 ```
 
-> **Note:** If you use this approach, you should disable or remove any existing background service (systemd, Task Scheduler, etc.) to avoid running two instances simultaneously.
+> **Note:** If you use this approach, you should disable or remove any existing background service (systemd, LaunchAgent, Task Scheduler, etc.) to avoid running two instances simultaneously.
 
 ## Uninstallation
 
@@ -239,17 +292,27 @@ irm https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/un
 curl -fsSL https://raw.githubusercontent.com/deadlock-api/deadlock-api-ingest/master/uninstall-linux.sh | bash
 ```
 
+### macOS
+
+**Run the local uninstall script:**
+```bash
+bash ~/Library/Application\ Support/deadlock-api-ingest/uninstall-macos.sh
+```
+
+It removes the LaunchAgent, the app in `~/Applications`, the `~/.local/bin` link and `~/Library/Application Support/deadlock-api-ingest/`, logs included.
+
 > **Note:** The installer automatically copies the uninstall script to the installation directory for offline use.
 
 ## Automated Releases
 
 This project uses automated releases that are created on every push to the master branch. The GitHub Actions workflow:
 
-1. **Builds cross-platform binaries** for Windows and Linux
+1. **Builds cross-platform binaries** for Windows, Linux and macOS
 2. **Generates semantic versions** based on commit count and SHA
 3. **Creates GitHub releases** with properly named assets:
    - `deadlock-api-ingest-windows-latest.exe` - Windows executable
    - `deadlock-api-ingest-ubuntu-latest` - Linux executable
+   - `deadlock-api-ingest-macos` - macOS universal binary (Apple Silicon and Intel)
 4. **Provides installation instructions** in each release
 
 The installation scripts automatically fetch the latest release, so you always get the most up-to-date version.

@@ -5,7 +5,6 @@
   protobuf,
   openssl,
   stdenv,
-  darwin,
   makeWrapper,
   makeDesktopItem,
   libxkbcommon,
@@ -47,11 +46,9 @@ naersk-lib.buildPackage {
     makeWrapper
   ];
 
+  # On macOS the SDK, with every framework the status window links, comes with stdenv.
   buildInputs = [
     openssl
-  ] ++ lib.optionals stdenv.hostPlatform.isDarwin [
-    darwin.apple_sdk.frameworks.Security
-    darwin.apple_sdk.frameworks.SystemConfiguration
   ];
 
   # `--gui` (winit) dlopens the windowing libraries at runtime.
@@ -69,6 +66,16 @@ naersk-lib.buildPackage {
       }
     install -Dm644 ${src}/assets/icon.png $out/share/icons/hicolor/256x256/apps/deadlock-api-ingest.png
     install -Dm644 -t $out/share/applications ${statusDesktopItem}/share/applications/*.desktop
+  ''
+  # The status window as an app, like install-macos.sh makes; nix-darwin links it into
+  # /Applications/Nix Apps when the package is in environment.systemPackages.
+  + lib.optionalString stdenv.hostPlatform.isDarwin ''
+    app="$out/Applications/Deadlock API Ingest.app/Contents"
+    install -Dm644 ${src}/assets/macos/Info.plist "$app/Info.plist"
+    install -Dm644 ${src}/assets/macos/AppIcon.icns "$app/Resources/AppIcon.icns"
+    mkdir -p "$app/MacOS"
+    printf '#!/bin/sh\nexec %s --gui\n' "$out/bin/deadlock-api-ingest" > "$app/MacOS/deadlock-api-ingest-status"
+    chmod 755 "$app/MacOS/deadlock-api-ingest-status"
   '';
 
   # naersk runs tests by default

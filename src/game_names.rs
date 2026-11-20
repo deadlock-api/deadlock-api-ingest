@@ -1,6 +1,8 @@
 //! Telling Deadlock's process apart; shared with the `deadlock-api-ingest-memgrant` helper.
 
-const GAME_PROCESS_NAMES: &[&str] = &["project8.exe", "deadlock.exe", "project8"];
+/// The Windows build's names (also under Proton and in Wine on macOS), and the native
+/// builds' (Linux, macOS).
+const GAME_PROCESS_NAMES: &[&str] = &["project8.exe", "deadlock.exe", "project8", "deadlock"];
 
 /// Whether a process with this name, started as `program`, is the game. Under Proton the
 /// game renames its main thread, which Linux reports as the process name; the program Proton
@@ -29,6 +31,11 @@ mod tests {
             Some("MainThrd"),
             Some(r"Z:\games\deadlock.exe.bak")
         ));
+        assert!(is_game(
+            Some("deadlock"),
+            Some("/Users/a/Deadlock/game/bin/deadlock")
+        ));
+        assert!(!is_game(Some("deadlock-api-ingest"), None));
         assert!(!is_game(Some("python3"), Some("/usr/bin/python3")));
         assert!(!is_game(None, None));
     }

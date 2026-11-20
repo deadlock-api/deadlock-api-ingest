@@ -101,8 +101,7 @@ mod platform {
             "InstallLocation",
             &Path::new(&exe)
                 .parent()
-                .map(|p| p.display().to_string())
-                .unwrap_or_default(),
+                .map_or_else(String::new, |p| p.display().to_string()),
         )?;
         key.set_value("NoModify", &1u32)?;
         key.set_value("NoRepair", &1u32)
@@ -200,7 +199,7 @@ mod platform {
 
 #[cfg(not(windows))]
 mod platform {
-    const UNSUPPORTED: &str = "The built-in installer is Windows-only; on Linux use install-linux.sh (or just run with --gui, which sets up the systemd user service).";
+    const UNSUPPORTED: &str = "The built-in installer is Windows-only; on Linux use install-linux.sh, on macOS install-macos.sh (or just run with --gui, which sets up the background service).";
 
     pub(super) fn install() -> Result<(), String> {
         Err(UNSUPPORTED.to_owned())

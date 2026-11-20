@@ -68,6 +68,7 @@ const PASS_EVERY: Duration = Duration::from_mins(5);
 const PASS_REST_RATIO: u32 = 4;
 const GAME_CHECK_EVERY: Duration = Duration::from_secs(30);
 /// Larger private regions are texture and mesh data.
+#[cfg(any(windows, target_os = "linux"))]
 const MAX_REGION: usize = 1 << 30;
 /// Chunks overlap by more than two history records, so nothing is split between them.
 const CHUNK: usize = 4 << 20;
