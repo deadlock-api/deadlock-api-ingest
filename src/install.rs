@@ -101,8 +101,7 @@ mod platform {
             "InstallLocation",
             &Path::new(&exe)
                 .parent()
-                .map(|p| p.display().to_string())
-                .unwrap_or_default(),
+                .map_or_default(|p| p.display().to_string()),
         )?;
         key.set_value("NoModify", &1u32)?;
         key.set_value("NoRepair", &1u32)
