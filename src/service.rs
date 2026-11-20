@@ -34,6 +34,12 @@ fn lock_held(path: &Path) -> bool {
 /// Installs the watcher as a per-user autostart service if it isn't one yet and starts it.
 pub(crate) fn ensure_started() -> Result<(), String> {
     if is_running() {
+        // The running watcher may come from a binary that has moved since: point the agent that
+        // starts it at login at one that exists, without starting a second watcher.
+        #[cfg(target_os = "macos")]
+        if let Ok(exe) = paths::current_exe() {
+            macos::repair_stale_agent(&exe);
+        }
         return Ok(());
     }
     platform::ensure_started(&paths::current_exe()?)
@@ -233,38 +239,63 @@ use windows as platform;
 
 #[cfg(target_os = "macos")]
 mod macos {
+    use std::path::PathBuf;
+
     use super::{Path, quiet, spawn_detached};
     use tracing::warn;
 
     /// The label of the per-user launch agent; `install-macos.sh` uses the same one.
     pub(super) const LABEL: &str = "com.deadlock-api.deadlock-api-ingest";
 
+    fn plist_path() -> Option<PathBuf> {
+        dirs::home_dir().map(|home| {
+            home.join("Library/LaunchAgents")
+                .join(format!("{LABEL}.plist"))
+        })
+    }
+
+    /// Whether the agent's program is gone (the binary was moved or deleted): launchd loads and
+    /// kickstarts such an agent fine but never runs anything. One whose program exists is kept,
+    /// with its arguments, as install-macos.sh or nix-darwin wrote it.
+    fn is_stale(plist_path: &Path) -> bool {
+        std::fs::read_to_string(plist_path)
+            .ok()
+            .and_then(|text| program(&text))
+            .is_some_and(|program| !Path::new(&program).exists())
+    }
+
+    fn write_agent(plist_path: &Path, exe: &Path) -> Result<(), String> {
+        if let Some(dir) = plist_path.parent() {
+            std::fs::create_dir_all(dir)
+                .map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+        }
+        std::fs::write(plist_path, plist(exe))
+            .map_err(|e| format!("Cannot write {}: {e}", plist_path.display()))
+    }
+
+    /// With a watcher running: points a stale agent at `exe` on disk only, which launchd reads
+    /// at the next login. The running watcher, and launchd's loaded copy, are left alone.
+    pub(super) fn repair_stale_agent(exe: &Path) {
+        if let Some(plist_path) = plist_path().filter(|path| is_stale(path))
+            && let Err(e) = write_agent(&plist_path, exe)
+        {
+            warn!("{e}");
+        }
+    }
+
     pub(super) fn ensure_started(exe: &Path) -> Result<(), String> {
         let domain = format!("gui/{}", rustix::process::getuid().as_raw());
         let service = format!("{domain}/{LABEL}");
-        let Some(plist_path) = dirs::home_dir().map(|home| {
-            home.join("Library/LaunchAgents")
-                .join(format!("{LABEL}.plist"))
-        }) else {
+        let Some(plist_path) = plist_path() else {
             return spawn_detached(exe, &[]);
         };
-        // An agent whose program is gone (the binary was moved or deleted) loads and kickstarts
-        // fine but never runs: point it at this binary. One whose program exists is kept, with
-        // its arguments, as install-macos.sh or nix-darwin wrote it.
-        let stale = std::fs::read_to_string(&plist_path)
-            .ok()
-            .and_then(|text| program(&text))
-            .is_some_and(|program| !Path::new(&program).exists());
+        let stale = is_stale(&plist_path);
         if stale {
+            // Unload launchd's copy too, so the bootstrap below reads the repaired file.
             let _ = launchctl(&["bootout", &service]);
         }
         if stale || !plist_path.exists() {
-            if let Some(dir) = plist_path.parent() {
-                std::fs::create_dir_all(dir)
-                    .map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
-            }
-            std::fs::write(&plist_path, plist(exe))
-                .map_err(|e| format!("Cannot write {}: {e}", plist_path.display()))?;
+            write_agent(&plist_path, exe)?;
         }
         // Loaded already (by install-macos.sh, at login, or an earlier start): start it.
         if launchctl(&["kickstart", &service]).is_ok() {
