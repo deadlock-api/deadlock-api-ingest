@@ -241,23 +241,34 @@ mod macos {
 
     pub(super) fn ensure_started(exe: &Path) -> Result<(), String> {
         let domain = format!("gui/{}", rustix::process::getuid().as_raw());
-        // Loaded already (by install-macos.sh, at login, or an earlier start): start it.
-        if launchctl(&["kickstart", &format!("{domain}/{LABEL}")]).is_ok() {
-            return Ok(());
-        }
+        let service = format!("{domain}/{LABEL}");
         let Some(plist_path) = dirs::home_dir().map(|home| {
             home.join("Library/LaunchAgents")
                 .join(format!("{LABEL}.plist"))
         }) else {
             return spawn_detached(exe, &[]);
         };
-        if !plist_path.exists() {
+        // An agent whose program is gone (the binary was moved or deleted) loads and kickstarts
+        // fine but never runs: point it at this binary. One whose program exists is kept, with
+        // its arguments, as install-macos.sh or nix-darwin wrote it.
+        let stale = std::fs::read_to_string(&plist_path)
+            .ok()
+            .and_then(|text| program(&text))
+            .is_some_and(|program| !Path::new(&program).exists());
+        if stale {
+            let _ = launchctl(&["bootout", &service]);
+        }
+        if stale || !plist_path.exists() {
             if let Some(dir) = plist_path.parent() {
                 std::fs::create_dir_all(dir)
                     .map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
             }
             std::fs::write(&plist_path, plist(exe))
                 .map_err(|e| format!("Cannot write {}: {e}", plist_path.display()))?;
+        }
+        // Loaded already (by install-macos.sh, at login, or an earlier start): start it.
+        if launchctl(&["kickstart", &service]).is_ok() {
+            return Ok(());
         }
         let plist_arg = plist_path.to_string_lossy();
         match launchctl(&["bootstrap", &domain, &plist_arg]) {
@@ -317,6 +328,25 @@ mod macos {
         text.replace('&', "&amp;")
             .replace('<', "&lt;")
             .replace('>', "&gt;")
+    }
+
+    /// The program an agent's plist starts: `Program`, else `ProgramArguments[0]`.
+    pub(super) fn program(plist: &str) -> Option<String> {
+        let first_string_after = |key: &str| {
+            let rest = &plist[plist.find(&format!("<key>{key}</key>"))?..];
+            let start = rest.find("<string>")? + "<string>".len();
+            let end = start + rest[start..].find("</string>")?;
+            Some(xml_unescape(&rest[start..end]))
+        };
+        first_string_after("Program").or_else(|| first_string_after("ProgramArguments"))
+    }
+
+    fn xml_unescape(text: &str) -> String {
+        text.replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&amp;", "&")
     }
 }
 
@@ -383,5 +413,24 @@ mod tests {
             "<string>/Users/a&amp;b/Library/Application Support/deadlock-api-ingest/deadlock-api-ingest</string>"
         ));
         assert!(plist.contains(&format!("<string>{}</string>", platform::LABEL)));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_plist_program() {
+        let exe = "/Users/a&b/Library/Application Support/deadlock-api-ingest/deadlock-api-ingest";
+        assert_eq!(
+            platform::program(&platform::plist(Path::new(exe))).as_deref(),
+            Some(exe)
+        );
+        // As nix-darwin writes it, with an argument after the program.
+        let nix = "<dict>\n\t<key>Label</key>\n\t<string>x</string>\n\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>/nix/store/abc/bin/deadlock-api-ingest</string>\n\t\t<string>--no-gc</string>\n\t</array>\n</dict>";
+        assert_eq!(
+            platform::program(nix).as_deref(),
+            Some("/nix/store/abc/bin/deadlock-api-ingest")
+        );
+        let with_program = "<key>Program</key><string>/bin/a</string><key>ProgramArguments</key><array><string>b</string></array>";
+        assert_eq!(platform::program(with_program).as_deref(), Some("/bin/a"));
+        assert_eq!(platform::program("<dict></dict>"), None);
     }
 }
