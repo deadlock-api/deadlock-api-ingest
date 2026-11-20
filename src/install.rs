@@ -200,7 +200,7 @@ mod platform {
 
 #[cfg(not(windows))]
 mod platform {
-    const UNSUPPORTED: &str = "The built-in installer is Windows-only; on Linux use install-linux.sh (or just run with --gui, which sets up the systemd user service).";
+    const UNSUPPORTED: &str = "The built-in installer is Windows-only; on Linux use install-linux.sh, on macOS install-macos.sh (or just run with --gui, which sets up the background service).";
 
     pub(super) fn install() -> Result<(), String> {
         Err(UNSUPPORTED.to_owned())

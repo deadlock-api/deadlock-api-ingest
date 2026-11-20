@@ -6,9 +6,9 @@ use std::fs::{OpenOptions, TryLockError};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use tracing::info;
-
-use crate::paths::{self, APP_NAME};
+use crate::paths;
+#[cfg(any(windows, target_os = "linux"))]
+use crate::paths::APP_NAME;
 
 /// Whether a long-running watcher holds the instance lock. Covers every way it can be
 /// running (systemd unit, scheduled task, `Run` key, launch wrapper, manual start).
@@ -84,8 +84,10 @@ pub(crate) fn spawn_detached(exe: &Path, args: &[&str]) -> Result<(), String> {
 
 /// Kills every other running copy of this program (watcher and GUIs, or only the watchers
 /// with `keep_gui`), so its exe can be replaced or removed.
+#[cfg(any(windows, target_os = "linux"))]
 pub(crate) fn stop_other_instances(keep_gui: bool) {
     use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
+    use tracing::info;
 
     let own_pid = sysinfo::get_current_pid().ok();
     let mut sys = crate::game_process::new_system();
@@ -229,7 +231,99 @@ pub(crate) mod windows {
 #[cfg(windows)]
 use windows as platform;
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+mod macos {
+    use super::{Path, quiet, spawn_detached};
+    use tracing::warn;
+
+    /// The label of the per-user launch agent; `install-macos.sh` uses the same one.
+    pub(super) const LABEL: &str = "com.deadlock-api.deadlock-api-ingest";
+
+    pub(super) fn ensure_started(exe: &Path) -> Result<(), String> {
+        let domain = format!("gui/{}", rustix::process::getuid().as_raw());
+        // Loaded already (by install-macos.sh, at login, or an earlier start): start it.
+        if launchctl(&["kickstart", &format!("{domain}/{LABEL}")]).is_ok() {
+            return Ok(());
+        }
+        let Some(plist_path) = dirs::home_dir().map(|home| {
+            home.join("Library/LaunchAgents")
+                .join(format!("{LABEL}.plist"))
+        }) else {
+            return spawn_detached(exe, &[]);
+        };
+        if !plist_path.exists() {
+            if let Some(dir) = plist_path.parent() {
+                std::fs::create_dir_all(dir)
+                    .map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+            }
+            std::fs::write(&plist_path, plist(exe))
+                .map_err(|e| format!("Cannot write {}: {e}", plist_path.display()))?;
+        }
+        let plist_arg = plist_path.to_string_lossy();
+        match launchctl(&["bootstrap", &domain, &plist_arg]) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Run it for this session at least.
+                warn!("{e}");
+                spawn_detached(exe, &[])
+            }
+        }
+    }
+
+    fn launchctl(args: &[&str]) -> Result<(), String> {
+        let status = quiet("launchctl")
+            .args(args)
+            .status()
+            .map_err(|e| format!("Cannot run launchctl: {e}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("launchctl {} failed: {status}", args.join(" ")))
+        }
+    }
+
+    /// Same agent as `install-macos.sh` writes: started at login, restarted when it fails
+    /// (like the systemd unit's `Restart=on-failure`), but not after a clean exit, e.g.
+    /// when another copy already runs.
+    pub(super) fn plist(exe: &Path) -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{exe}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>
+"#,
+            exe = xml_escape(&exe.to_string_lossy())
+        )
+    }
+
+    fn xml_escape(text: &str) -> String {
+        text.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+    }
+}
+
+#[cfg(target_os = "macos")]
+use macos as platform;
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 mod platform {
     use super::{Path, spawn_detached};
 
@@ -277,5 +371,17 @@ mod tests {
         // Either would keep the memory helper from its capability.
         assert!(!unit.contains("\nNoNewPrivileges="));
         assert!(!unit.contains("\nPrivateTmp="));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_plist_points_at_exe() {
+        let plist = platform::plist(Path::new(
+            "/Users/a&b/Library/Application Support/deadlock-api-ingest/deadlock-api-ingest",
+        ));
+        assert!(plist.contains(
+            "<string>/Users/a&amp;b/Library/Application Support/deadlock-api-ingest/deadlock-api-ingest</string>"
+        ));
+        assert!(plist.contains(&format!("<string>{}</string>", platform::LABEL)));
     }
 }

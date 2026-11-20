@@ -88,6 +88,8 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - platform: windows-latest
             target: x86_64-pc-windows-gnu
+          - platform: macos-latest
+            target: aarch64-apple-darwin
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v5
@@ -118,6 +120,8 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - platform: windows-latest
             target: x86_64-pc-windows-gnu
+          - platform: macos-latest
+            target: aarch64-apple-darwin
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v5
@@ -175,6 +179,11 @@ jobs:
             target: x86_64-pc-windows-gnu
             binary_name: deadlock-api-ingest.exe
             asset_name: deadlock-api-ingest-windows-latest.exe
+          # Built for Apple Silicon and Intel, then merged into one universal binary.
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            binary_name: deadlock-api-ingest
+            asset_name: deadlock-api-ingest-macos
     runs-on: ${{ matrix.platform }}
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -219,6 +228,11 @@ jobs:
           fi
       - name: Build release binary
         run: cargo build --locked --release --target ${{ matrix.target }}
+      - name: Build release binary (macOS, Intel)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          rustup target add x86_64-apple-darwin
+          cargo build --locked --release --target x86_64-apple-darwin
       - name: Prepare binary (Linux)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -234,6 +248,19 @@ jobs:
           # Same exe; the "-setup" name makes it install itself when double-clicked
           copy target\${{ matrix.target }}\release\${{ matrix.binary_name }} deadlock-api-ingest-setup.exe
           Get-Item ${{ matrix.asset_name }}, deadlock-api-ingest-setup.exe
+      - name: Prepare binary (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          # Not signed with an Apple Developer ID; the linker's ad-hoc signature on each slice
+          # is enough to run it. install-macos.sh downloads it with curl, which doesn't mark
+          # it as quarantined, so Gatekeeper doesn't block it.
+          lipo -create -output ${{ matrix.asset_name }} \
+            target/aarch64-apple-darwin/release/${{ matrix.binary_name }} \
+            target/x86_64-apple-darwin/release/${{ matrix.binary_name }}
+          chmod +x ${{ matrix.asset_name }}
+          lipo -info ${{ matrix.asset_name }}
+          ./${{ matrix.asset_name }} --version
+          ls -la ${{ matrix.asset_name }}
       - name: Upload build artifact
         uses: actions/upload-artifact@v5
         with:
@@ -283,7 +310,12 @@ jobs:
   build-cache-nix:
     name: Build & Cache Nix Package
     needs: [ fmt, deps, audit, typos, lint, test, shellcheck-installer, powershell-analyzer ]
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-latest builds the aarch64-darwin package nix-darwin users install.
+        platform: [ ubuntu-latest, macos-latest ]
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v5
       - name: Install Nix
@@ -369,7 +401,7 @@ jobs:
         run: |
           mkdir -p ./release-assets
           find ./artifacts -name "deadlock-api-ingest-*" -type f -exec cp {} ./release-assets/ \;
-          cp install-linux.sh install-windows.ps1 ./release-assets/
+          cp install-linux.sh install-macos.sh install-windows.ps1 ./release-assets/
           (cd ./release-assets && sha256sum * > SHA256SUMS)
           ls -la ./release-assets/
       - name: Attest release assets
@@ -406,6 +438,12 @@ jobs:
             Without curl (Ubuntu's desktop install has wget instead):
             ```bash
             wget -O- https://github.com/deadlock-api/deadlock-api-ingest/releases/download/${{ needs.build.outputs.version }}/install-linux.sh | bash
+            ```
+
+            **macOS:**
+            Open Terminal and run the following command (no admin rights needed):
+            ```bash
+            curl -fsSL https://github.com/deadlock-api/deadlock-api-ingest/releases/download/${{ needs.build.outputs.version }}/install-macos.sh | bash
             ```
 
             ## Changes

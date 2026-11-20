@@ -1,4 +1,7 @@
 //! Self-update from the GitHub releases, triggered from the GUI.
+//!
+//! Only on Windows and Linux; elsewhere [`check`] never finds an update.
+#![cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 
 use core::time::Duration;
 use std::io::Write;

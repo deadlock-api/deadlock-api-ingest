@@ -36,6 +36,16 @@
             nixpkgs.lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.default;
         };
       nixosModules.deadlock-api-ingest = self.nixosModules.default;
+
+      # The nix-darwin module, likewise defaulting to this flake's package.
+      darwinModules.default =
+        { pkgs, ... }:
+        {
+          imports = [ ./darwin-module.nix ];
+          services.deadlock-api-ingest.package =
+            nixpkgs.lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+        };
+      darwinModules.deadlock-api-ingest = self.darwinModules.default;
     }
     // flake-utils.lib.eachDefaultSystem (
       system:
