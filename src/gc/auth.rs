@@ -140,6 +140,9 @@ pub(crate) fn recover_all() -> Result<Vec<AuthContext>, GcError> {
     Ok(contexts)
 }
 
+/// What Steam appends to the account-name CRC32 to form a `ConnectCache` key.
+const CONNECT_CACHE_KEY_SUFFIX: &str = "1";
+
 fn connect_cache_blob(vdf: &Vdf, account: &str) -> Result<Vec<u8>, GcError> {
     let cache = ["Software", "Valve", "Steam", "ConnectCache"]
         .into_iter()
@@ -149,13 +152,22 @@ fn connect_cache_blob(vdf: &Vdf, account: &str) -> Result<Vec<u8>, GcError> {
             err("local.vdf has no Software/Valve/Steam/ConnectCache section (no remembered Steam login?)")
         })?;
 
-    let prefix = format!("{:08x}", crc32fast::hash(account.as_bytes()));
-    let hex_value = cache
-        .iter()
-        .find(|(subkey, _)| {
-            subkey
-                .get(..prefix.len())
-                .is_some_and(|p| p.eq_ignore_ascii_case(&prefix))
+    let crc = crc32fast::hash(account.as_bytes());
+    let padded = format!("{crc:08x}");
+    // Steam doesn't always zero-pad the CRC: a CRC below 0x10000000 can be stored
+    // with fewer than eight digits. That form is matched as the whole key, so it
+    // can't hit a longer CRC that merely starts with the same digits.
+    let unpadded_key = format!("{crc:x}{CONNECT_CACHE_KEY_SUFFIX}");
+    let padded_match = cache.iter().find(|(subkey, _)| {
+        subkey
+            .get(..padded.len())
+            .is_some_and(|p| p.eq_ignore_ascii_case(&padded))
+    });
+    let hex_value = padded_match
+        .or_else(|| {
+            cache
+                .iter()
+                .find(|(subkey, _)| subkey.eq_ignore_ascii_case(&unpadded_key))
         })
         .and_then(|(_, values)| values.first())
         .and_then(Value::get_str)
@@ -242,7 +254,49 @@ mod tests {
     }
 
     fn key_for(account: &str) -> String {
-        format!("{:08x}1", crc32fast::hash(account.as_bytes()))
+        format!(
+            "{:08x}{CONNECT_CACHE_KEY_SUFFIX}",
+            crc32fast::hash(account.as_bytes())
+        )
+    }
+
+    /// Finds an account name whose CRC32 has a leading zero nibble.
+    fn account_with_short_crc() -> (String, u32) {
+        (0u32..10_000)
+            .map(|i| format!("user{i}"))
+            .map(|name| {
+                let crc = crc32fast::hash(name.as_bytes());
+                (name, crc)
+            })
+            .find(|(_, crc)| *crc < 0x1000_0000)
+            .expect("some name hashes below 0x10000000")
+    }
+
+    #[test]
+    fn connect_cache_lookup_accepts_padded_and_unpadded_crc() {
+        let (account, crc) = account_with_short_crc();
+        for subkey in [
+            format!("{crc:08x}{CONNECT_CACHE_KEY_SUFFIX}"),
+            format!("{crc:x}{CONNECT_CACHE_KEY_SUFFIX}"),
+            format!("{crc:X}{CONNECT_CACHE_KEY_SUFFIX}"),
+        ] {
+            let text = local_vdf("Valve", "Steam", &subkey);
+            assert_eq!(
+                connect_cache_blob(&parse(&text), &account).ok(),
+                Some(vec![0x0a, 0x0b]),
+                "{subkey}"
+            );
+        }
+    }
+
+    #[test]
+    fn connect_cache_unpadded_lookup_rejects_longer_crc_with_same_prefix() {
+        let (account, crc) = account_with_short_crc();
+        // An 8-digit CRC that starts with the unpadded digits (e.g. 123abcd -> 123abcd5).
+        let subkey = format!("{crc:x}5{CONNECT_CACHE_KEY_SUFFIX}");
+        let text = local_vdf("Valve", "Steam", &subkey);
+        let e = connect_cache_blob(&parse(&text), &account).unwrap_err();
+        assert!(e.to_string().contains("no ConnectCache entry"), "{e}");
     }
 
     #[test]
